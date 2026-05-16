@@ -1,0 +1,33 @@
+import { Category } from './category.entity';
+import { Chapter } from './chapter.entity';
+import { CourseType, CourseStatus } from '../../../common/constants';
+export declare class Course {
+    id: number;
+    title: string;
+    cover: string;
+    description: string;
+    categoryId: number;
+    category: Category;
+    teacherId: number;
+    courseType: CourseType;
+    price: number;
+    originalPrice: number;
+    status: CourseStatus;
+    previewDuration: number;
+    trailerVideoId: number;
+    reviewComment: string;
+    reviewerId: number;
+    reviewedAt: Date;
+    pendingEdit: boolean;
+    pendingOffShelf: boolean;
+    tags: string;
+    studentCount: number;
+    rating: number;
+    reviewCount: number;
+    isRecommended: boolean;
+    sortOrder: number;
+    previousData: string;
+    chapters: Chapter[];
+    createdAt: Date;
+    updatedAt: Date;
+}
