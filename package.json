@@ -1,0 +1,25 @@
+{
+  "name": "root",
+  "private": true,
+  "scripts": {
+    "minio": "cmd /c start \"MinIO Server\" /D \"D:\\my-minio\" .\\minio.exe server D:\\my-minio\\minio-data --console-address \":9001\"",
+    "backend": "cd backend && npm run start:dev",
+    "frontend": "cd frontend && npm run dev",
+    "dev": "concurrently --names \"MINIO,API,WEB\" --prefix-colors \"yellow,cyan,green\" \"npm run minio\" \"npm run backend\" \"npm run frontend\"",
+    "dev:nominio": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,green\" \"npm run backend\" \"npm run frontend\"",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "db:create": "cd backend && node scripts/create-db.js",
+    "db:seed": "cd backend && node scripts/seed.js",
+    "db:reset": "cd backend && node scripts/reset-db.js",
+    "db:accounts": "cd backend && node scripts/create-accounts.js",
+    "setup": "npm run install:all && npm run db:create && npm run db:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^10.1.0"
+  },
+  "dependencies": {
+    "@heroicons/vue": "^2.2.0",
+    "minio": "^8.0.7"
+  }
+}

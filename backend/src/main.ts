@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
+import { Request, Response, Router } from 'express';
 
 /**
  * 应用入口文件
@@ -25,8 +26,20 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // ============ CORS 跨域配置 ============
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost',
+    'http://localhost:80',
+  ];
+  // 支持 Tailscale Funnel 域名 *.ts.net
+  const tailscaleHost = process.env.TAILSCALE_HOST;
+  if (tailscaleHost) {
+    allowedOrigins.push(`https://${tailscaleHost}`);
+  }
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -57,12 +70,26 @@ async function bootstrap() {
     },
   });
 
+  // ============ 健康检查端点 ============
+  // 用于 Docker 健康检查、负载均衡器探活
+  const healthRouter = Router();
+  healthRouter.get('/health', (req: Request, res: Response) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+    });
+  });
+  app.use(healthRouter);
+
   // ============ 启动服务器 ============
   const port = configService.get<number>('APP_PORT') || 3000;
   await app.listen(port);
 
   logger.log(`应用已启动: http://localhost:${port}/api/v1`);
   logger.log(`Swagger 文档: http://localhost:${port}/api/docs`);
+  logger.log(`健康检查: http://localhost:${port}/health`);
 }
 
 bootstrap();

@@ -9,6 +9,8 @@ export declare class Teacher {
     avatar: string;
     contactInfo: string;
     paymentAccount: string;
+    bankAccount: string;
+    bankBranch: string;
     notificationEnabled: boolean;
     totalEarnings: number;
     withdrawableBalance: number;

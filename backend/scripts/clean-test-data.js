@@ -20,12 +20,12 @@
 const mysql = require('mysql2/promise');
 
 async function cleanTestData() {
-    const conn = await mysql.createConnection({
-      host: 'localhost',
-      user: 'root',
-      password: 'your-db-password-here',
-      database: 'music_edu'
-    });
+  const conn = await mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: 'your-db-password-here',
+    database: 'music_edu'
+  });
 
   try {
     console.log('========== 开始清理测试数据 ==========\n');

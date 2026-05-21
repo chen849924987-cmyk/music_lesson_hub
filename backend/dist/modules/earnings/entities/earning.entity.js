@@ -37,7 +37,7 @@ __decorate([
     __metadata("design:type", Number)
 ], Earning.prototype, "teacherId", void 0);
 __decorate([
-    (0, typeorm_1.Column)(),
+    (0, typeorm_1.Column)({ nullable: true }),
     __metadata("design:type", Number)
 ], Earning.prototype, "orderId", void 0);
 __decorate([
@@ -45,7 +45,7 @@ __decorate([
     __metadata("design:type", Number)
 ], Earning.prototype, "orderItemId", void 0);
 __decorate([
-    (0, typeorm_1.Column)(),
+    (0, typeorm_1.Column)({ nullable: true }),
     __metadata("design:type", Number)
 ], Earning.prototype, "courseId", void 0);
 __decorate([

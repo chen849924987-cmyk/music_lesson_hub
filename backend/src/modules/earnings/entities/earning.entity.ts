@@ -31,16 +31,16 @@ export class Earning {
   @Column()
   teacherId: number;
 
-  /** 关联订单ID */
-  @Column()
+  /** 关联订单ID（提现/退款记录可为空） */
+  @Column({ nullable: true })
   orderId: number;
 
   /** 关联订单项ID（可精确到课程/课时维度） */
   @Column({ nullable: true })
   orderItemId: number;
 
-  /** 关联课程ID */
-  @Column()
+  /** 关联课程ID（提现记录可为空） */
+  @Column({ nullable: true })
   courseId: number;
 
   /** 课程标题（冗余存储，防止课程名变更后数据不一致） */

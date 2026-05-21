@@ -17,14 +17,33 @@ import { CourseStatus, Role } from '../../common/constants';
 import { PaginationMeta } from '../../common/dto/pagination.dto';
 import { StorageService } from '../storage/storage.service';
 import { User } from '../users/entities/user.entity';
+import { RedisService } from '../../common/redis/redis.service';
 
 /**
  * 课程服务
  * 功能描述：处理课程的核心业务逻辑，包括创建、编辑、查询、状态管理等
+ *
+ * 缓存策略说明（Redis）：
+ * - 公开课程列表（findPublished）：key = "course:catalog:{page}:{pageSize}:{categoryId}:{keyword}"
+ *   用户在浏览课程目录时命中缓存，5分钟过期。后台课程状态变更时主动清除缓存。
+ * - 课程详情（findById）：key = "course:detail:{id}"
+ *   用户查看课程详情页时命中缓存，10分钟过期。课程更新时主动清除缓存。
  */
 @Injectable()
 export class CoursesService {
   private readonly logger = new Logger(CoursesService.name);
+
+  /** Redis 缓存键前缀 */
+  private readonly CACHE_PREFIX = {
+    CATALOG: 'course:catalog',
+    DETAIL: 'course:detail',
+  };
+
+  /** 缓存 TTL（秒） */
+  private readonly CACHE_TTL = {
+    CATALOG: 300,   // 课程目录缓存5分钟
+    DETAIL: 600,    // 课程详情缓存10分钟
+  };
 
   constructor(
     @InjectRepository(Course)
@@ -41,14 +60,17 @@ export class CoursesService {
     private readonly lessonRepository: Repository<Lesson>,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
+    private readonly redisService: RedisService,
   ) {}
 
-/**
- * 创建课程
- * @param teacherId 教师用户ID
- * @param createCourseDto 创建课程参数
- * @returns 创建的课程信息
- */
+  /**
+   * 创建课程
+   * 功能描述：新建课程时无需清除缓存，因为新课程默认为草稿状态，
+   *          不会出现在公开课程列表中。待审核通过后由审核方法清除缓存。
+   * @param teacherId 教师用户ID
+   * @param createCourseDto 创建课程参数
+   * @returns 创建的课程信息
+   */
 async create(teacherId: number, createCourseDto: CreateCourseDto): Promise<Course> {
   // 校验分类是否存在
   if (createCourseDto.categoryId) {
@@ -155,6 +177,13 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
   }
 
   Object.assign(course, updateCourseDto);
+
+  // 如果编辑的是已上架课程，清除课程目录缓存和该课程详情缓存
+  if (course.status === CourseStatus.APPROVED) {
+    await this.clearCatalogCache();
+    await this.clearDetailCache(id);
+  }
+
   return this.courseRepository.save(course);
 }
 
@@ -180,6 +209,8 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
 
   /**
    * 分页查询课程列表（客户端公开接口，仅返回已上架的课程）
+   * 使用 Redis 缓存：key = "course:catalog:{page}:{pageSize}:{categoryId}:{courseType}:{keyword}:{sortBy}:{sortOrder}"
+   * 缓存 TTL = 5 分钟。后台课程状态变更时主动清除缓存。
    * @param queryDto 查询参数
    * @returns 课程列表和分页信息
    */
@@ -193,6 +224,18 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
       sortBy = 'sortOrder',
       sortOrder: sortOrderParam = 'ASC',
     } = queryDto;
+
+    // 构造缓存键：将查询参数序列化，只有无关键词搜索时才使用缓存（带关键词的搜索结果实时性要求高）
+    const cacheKey = `${this.CACHE_PREFIX.CATALOG}:${page}:${pageSize}:${categoryId ?? 'all'}:${courseType ?? 'all'}:${keyword ? encodeURIComponent(keyword) : 'all'}:${sortBy}:${sortOrderParam}`;
+
+    // 如果没有关键词搜索，尝试从缓存读取（带关键词搜索时不缓存，确保搜索结果实时准确）
+    if (!keyword) {
+      const cached = await this.redisService.getJson<{ items: Course[]; meta: PaginationMeta }>(cacheKey);
+      if (cached) {
+        this.logger.debug(`缓存命中: ${cacheKey}`);
+        return cached;
+      }
+    }
 
     const queryBuilder = this.courseRepository.createQueryBuilder('course')
       .leftJoinAndSelect('course.category', 'category')
@@ -238,7 +281,15 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
     });
 
     const meta = new PaginationMeta(total, page, pageSize);
-    return { items: entities, meta };
+    const result = { items: entities, meta };
+
+    // 如果没有关键词搜索，将结果写入缓存
+    if (!keyword) {
+      await this.redisService.set(cacheKey, result, this.CACHE_TTL.CATALOG);
+      this.logger.debug(`缓存写入: ${cacheKey}`);
+    }
+
+    return result;
   }
 
   /**
@@ -337,7 +388,12 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
     this.validateStatusTransition(course.status, status, role);
 
     course.status = status;
-    return this.courseRepository.save(course);
+
+    // 状态变更影响课程在公开列表中的可见性，清除目录缓存
+    const saved = await this.courseRepository.save(course);
+    await this.clearCatalogCache();
+    await this.clearDetailCache(id);
+    return saved;
   }
 
   /**
@@ -682,6 +738,10 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
       this.logger.warn(`审核记录保存失败: ${(error as Error).message}`);
     }
 
+    // 审核操作会影响课程在公开列表中的可见性，清除目录缓存
+    await this.clearCatalogCache();
+    await this.clearDetailCache(id);
+
     return saved;
   }
 
@@ -708,7 +768,11 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
     const course = await this.findById(id);
 
     course.isRecommended = isRecommended;
-    return this.courseRepository.save(course);
+
+    // 推荐状态变更影响课程列表排序，清除目录缓存
+    const saved = await this.courseRepository.save(course);
+    await this.clearCatalogCache();
+    return saved;
   }
 
   /**
@@ -750,17 +814,24 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
 
   /**
    * 将课程封面对象名转换为可访问的URL
-   * 功能描述：如果 cover 字段是 MinIO 对象路径（不以 http 开头），则生成预签名URL
-   *           控制器在返回查询结果前调用此方法转换封面 URL
+   * 功能描述：如果 cover 字段是 MinIO 对象路径（不以 http 开头），则生成公开的 Nginx 直链URL
+   *           封面图片是公开资源，无需签名保护，使用公开直链配合浏览器缓存以提升加载速度
    * @param course 课程对象（会被直接修改）
    */
   async transformCoverToUrl(course: Course): Promise<void> {
     if (course.cover && !course.cover.startsWith('http')) {
       try {
-        course.cover = await this.storageService.getPresignedUrl(course.cover, 86400); // 24小时有效期
+        // 使用公开直链代替预签名URL，配合浏览器缓存加速封面加载
+        // 传入课程更新时间作为缓存失效的时间戳
+        const timestamp = course.updatedAt ? new Date(course.updatedAt).getTime() : undefined;
+        course.cover = await this.storageService.getPublicUrl(course.cover, timestamp);
       } catch {
-        // 如果获取 presigned URL 失败，保持原有值
-        this.logger.warn(`获取封面签名URL失败: ${course.cover}`);
+        // 如果获取公开URL失败，尝试回退到预签名URL
+        try {
+          course.cover = await this.storageService.getPresignedUrl(course.cover, 86400);
+        } catch {
+          this.logger.warn(`获取封面URL失败: ${course.cover}`);
+        }
       }
     }
   }
@@ -926,7 +997,14 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
     courseId: number,
     lessonId: number,
   ): Promise<{ hasAccess: boolean; accessType: 'full' | 'trial' | 'none'; previewDuration: number }> {
-    const course = await this.findById(courseId);
+    // 轻量查询：只加载需要的字段，避免加载完整课程实体（含分类、章节等关联数据）
+    const course = await this.courseRepository.findOne({
+      where: { id: courseId },
+      select: ['id', 'teacherId', 'previewDuration'],
+    });
+    if (!course) {
+      throw BusinessException.notFound('课程不存在');
+    }
 
     // 如果课程教师本人访问，获得完整权限
     if (userId && course.teacherId === userId) {
@@ -1162,6 +1240,29 @@ async update(id: number, teacherId: number, updateCourseDto: UpdateCourseDto): P
         totalPages: Math.ceil(total / pageSize),
       },
     };
+  }
+
+
+  /**
+   * 清除课程目录缓存
+   * 功能描述：当课程状态或信息发生变更时，清除所有课程目录的 Redis 缓存，
+   *          确保用户下次访问时获取最新数据。
+   *          使用通配符模式 "course:catalog:*" 匹配所有分页/筛选组合的缓存。
+   */
+  private async clearCatalogCache(): Promise<void> {
+    const deleted = await this.redisService.delByPattern(`${this.CACHE_PREFIX.CATALOG}:*`);
+    if (deleted > 0) {
+      this.logger.log(`课程目录缓存已清除，共 ${deleted} 条`);
+    }
+  }
+
+  /**
+   * 清除单个课程详情缓存
+   * @param courseId 课程ID
+   */
+  private async clearDetailCache(courseId: number): Promise<void> {
+    const key = `${this.CACHE_PREFIX.DETAIL}:${courseId}`;
+    await this.redisService.del(key);
   }
 
   /**

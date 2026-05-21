@@ -1,11 +1,14 @@
 import { Repository, DataSource } from 'typeorm';
 import { Earning } from './entities/earning.entity';
+import { Withdrawal } from './entities/withdrawal.entity';
 import { Order } from '../orders/entities/order.entity';
 import { OrderItem } from '../orders/entities/order-item.entity';
 import { Course } from '../courses/entities/course.entity';
 import { Teacher } from '../teachers/entities/teacher.entity';
+import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 export declare class EarningsService {
     private readonly earningRepository;
+    private readonly withdrawalRepository;
     private readonly orderRepository;
     private readonly orderItemRepository;
     private readonly courseRepository;
@@ -13,9 +16,20 @@ export declare class EarningsService {
     private readonly dataSource;
     private readonly logger;
     private readonly PLATFORM_SHARE_RATE;
-    constructor(earningRepository: Repository<Earning>, orderRepository: Repository<Order>, orderItemRepository: Repository<OrderItem>, courseRepository: Repository<Course>, teacherRepository: Repository<Teacher>, dataSource: DataSource);
+    constructor(earningRepository: Repository<Earning>, withdrawalRepository: Repository<Withdrawal>, orderRepository: Repository<Order>, orderItemRepository: Repository<OrderItem>, courseRepository: Repository<Course>, teacherRepository: Repository<Teacher>, dataSource: DataSource);
     createEarningsFromOrder(orderId: number): Promise<void>;
     deductEarningsFromRefund(orderId: number): Promise<void>;
+    applyWithdrawal(teacherId: number, dto: CreateWithdrawalDto): Promise<Withdrawal>;
+    reviewWithdrawal(withdrawalId: number, reviewerId: number, action: 'approved' | 'rejected', remark?: string): Promise<Withdrawal>;
+    getTeacherWithdrawals(teacherId: number, page?: number, pageSize?: number): Promise<{
+        items: Withdrawal[];
+        meta: any;
+    }>;
+    getAllWithdrawals(page?: number, pageSize?: number, status?: string): Promise<{
+        items: Withdrawal[];
+        meta: any;
+    }>;
+    countPendingWithdrawals(): Promise<number>;
     getTeacherEarningStats(teacherId: number): Promise<{
         totalEarnings: number;
         balance: number;

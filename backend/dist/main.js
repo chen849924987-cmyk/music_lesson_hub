@@ -5,6 +5,7 @@ const app_module_1 = require("./app.module");
 const swagger_1 = require("@nestjs/swagger");
 const config_1 = require("@nestjs/config");
 const common_1 = require("@nestjs/common");
+const express_1 = require("express");
 async function bootstrap() {
     const logger = new common_1.Logger('Bootstrap');
     const app = await core_1.NestFactory.create(app_module_1.AppModule, {
@@ -15,7 +16,9 @@ async function bootstrap() {
     const configService = app.get(config_1.ConfigService);
     app.setGlobalPrefix('api/v1');
     app.enableCors({
-        origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+        origin: process.env.NODE_ENV === 'production'
+            ? ['http://localhost', 'http://localhost:80', /\.music-edu\.com$/]
+            : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization'],
@@ -39,10 +42,21 @@ async function bootstrap() {
             persistAuthorization: true,
         },
     });
+    const healthRouter = (0, express_1.Router)();
+    healthRouter.get('/health', (req, res) => {
+        res.json({
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            environment: process.env.NODE_ENV || 'development',
+        });
+    });
+    app.use(healthRouter);
     const port = configService.get('APP_PORT') || 3000;
     await app.listen(port);
     logger.log(`应用已启动: http://localhost:${port}/api/v1`);
     logger.log(`Swagger 文档: http://localhost:${port}/api/docs`);
+    logger.log(`健康检查: http://localhost:${port}/health`);
 }
 bootstrap();
 //# sourceMappingURL=main.js.map

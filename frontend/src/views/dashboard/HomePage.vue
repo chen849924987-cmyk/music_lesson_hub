@@ -234,8 +234,19 @@
           </router-link>
         </div>
 
-        <div v-if="courses.length > 0" class="courses-more">
-          <router-link to="/courses" class="btn-text">浏览全部课程 →</router-link>
+        <!-- 加载更多按钮：当课程总数超过已加载数量时显示 -->
+        <div v-if="courses.length > 0 && hasMore" class="courses-more">
+          <button
+            class="btn-text"
+            :disabled="loadingMore"
+            @click="loadMoreCourses"
+          >
+            {{ loadingMore ? '加载中...' : '加载更多课程 ↓' }}
+          </button>
+        </div>
+        <!-- 全部加载完毕提示 -->
+        <div v-else-if="courses.length > 0 && !hasMore && totalCourses > 12" class="courses-more">
+          <span class="courses-more-done">已加载全部 {{ totalCourses }} 门课程</span>
         </div>
       </section>
 
@@ -436,8 +447,8 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth';
-import { getPublishedCourses } from '../../api/course';
-import type { CourseInfo } from '../../api/course';
+import { getPublishedCourses, getCategories } from '../../api/course';
+import type { CourseInfo, PaginationMeta } from '../../api/course';
 import ThemeToggle from '../../components/ThemeToggle.vue';
 import BackToTop from '../../components/BackToTop.vue';
 
@@ -683,6 +694,142 @@ const scrollToSection = (sectionId: string) => {
   }
 };
 
+/** 分页状态：当前页码 */
+const currentPage = ref(1);
+/** 分页状态：课程总数（来自后端 meta） */
+const totalCourses = ref(0);
+/** 分页状态：是否正在加载更多 */
+const loadingMore = ref(false);
+/** 分页状态：是否还有更多课程可加载 */
+const hasMore = computed(() => courses.value.length < totalCourses.value);
+
+/**
+ * 加载首页数据（分类 + 课程列表）
+ * 功能描述：独立获取分类数据（不受分页影响），分页获取课程列表
+ */
+async function loadHomePageData() {
+  try {
+    // 并行加载分类和课程列表
+    const [categoriesRes, coursesRes] = await Promise.all([
+      getCategories().catch(() => null),
+      getPublishedCourses({ status: 'approved', page: 1, pageSize: 12 }),
+    ]);
+
+    // ---- 处理分类数据 ----
+    const categoriesData = ((categoriesRes as any)?.data ?? categoriesRes) as any[];
+    if (categoriesData && categoriesData.length > 0) {
+      categories.value = categoriesData.map((cat: any) => ({
+        name: cat.name,
+        icon: categorySvgIcons[cat.name] || categorySvgIcons['默认'],
+        count: 0, // 分类API不返回课程数，从课程列表推断
+      }));
+      // 从已加载的课程中统计分类课程数
+      const coursesData = ((coursesRes as any)?.data ?? coursesRes) as { items?: CourseInfo[] };
+      const items = coursesData?.items ?? [];
+      const countMap = new Map<string, number>();
+      for (const c of items) {
+        if (c.category) {
+          const catName = typeof c.category === 'object' && c.category ? c.category.name : c.category;
+          countMap.set(catName, (countMap.get(catName) || 0) + 1);
+        }
+      }
+      categories.value = categories.value.map(cat => ({
+        ...cat,
+        count: countMap.get(cat.name) || 0,
+      }));
+    } else {
+      categories.value = defaultCategories;
+    }
+
+    // ---- 处理课程列表数据 ----
+    const coursesData = ((coursesRes as any)?.data ?? coursesRes) as { items?: CourseInfo[]; meta?: PaginationMeta };
+    const allCourses: CourseInfo[] = coursesData?.items ?? [];
+    const meta = coursesData?.meta;
+
+    // 保存分页信息
+    totalCourses.value = meta?.total ?? allCourses.length;
+
+    // 排序：推荐的课程优先展示，再按创建时间降序排列
+    const sorted = [...allCourses].sort((a, b) => {
+      if (a.isRecommended !== b.isRecommended) {
+        return a.isRecommended ? -1 : 1;
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    // 限制展示前6条（视觉上更整齐）
+    courses.value = sorted.slice(0, 6);
+
+    // 构建筛选标签（基于所有分类）
+    buildFilterTabs(categoriesData);
+
+    // 更新公告栏
+    if (allCourses.length > 0) {
+      announcementText.value = `最新课程「${allCourses[0].title}」已上线`;
+    }
+  } catch {
+    courses.value = [];
+    categories.value = defaultCategories;
+  } finally {
+    loading.value = false;
+    categoryLoading.value = false;
+  }
+}
+
+/**
+ * 加载更多课程
+ * 功能描述：点击"加载更多"按钮时，请求下一页课程数据并追加到当前列表
+ */
+async function loadMoreCourses() {
+  if (loadingMore.value) return;
+  loadingMore.value = true;
+  try {
+    const nextPage = currentPage.value + 1;
+    const res = await getPublishedCourses({ status: 'approved', page: nextPage, pageSize: 12 });
+    const data = (res as any)?.data ?? res;
+    const newCourses: CourseInfo[] = data?.items ?? [];
+    const meta = data?.meta as PaginationMeta | undefined;
+
+    // 追加到现有课程列表
+    courses.value = [...courses.value, ...newCourses];
+    currentPage.value = nextPage;
+
+    // 更新总数
+    if (meta?.total !== undefined) {
+      totalCourses.value = meta.total;
+    }
+  } catch {
+    // 加载更多失败时静默处理，用户可再次点击
+  } finally {
+    loadingMore.value = false;
+  }
+}
+
+/**
+ * 构建分类卡片数据
+ * @param categoriesData - 从分类API获取的原始分类数据
+ */
+function buildCategories(categoriesData: any) {
+  // 不再使用此函数，分类数据在 loadHomePageData 中直接处理
+}
+
+/**
+ * 构建筛选标签
+ * @param categoriesData - 从分类API获取的原始分类数据
+ */
+function buildFilterTabs(categoriesData: any) {
+  if (categoriesData && categoriesData.length > 0) {
+    filterTabs.value = [
+      { key: 'all', label: '全部' },
+      ...categoriesData.map((cat: any) => ({
+        key: cat.name,
+        label: cat.name,
+      })),
+    ];
+  } else {
+    filterTabs.value = [{ key: 'all', label: '全部' }];
+  }
+}
+
 onMounted(async () => {
   checkBannerExpiry();
 
@@ -699,84 +846,20 @@ onMounted(async () => {
     }
   });
 
-  try {
-    const res = await getPublishedCourses({ status: 'approved', page: 1, pageSize: 100 });
-    const data = (res as any)?.data ?? res;
-    const allCourses: CourseInfo[] = data?.items ?? data ?? [];
-    // 排序：推荐的课程优先展示，再按创建时间降序排列
-    const sorted = [...allCourses].sort((a, b) => {
-      if (a.isRecommended !== b.isRecommended) {
-        return a.isRecommended ? -1 : 1;
-      }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-    courses.value = sorted.slice(0, 6);
+  await loadHomePageData();
 
-    buildCategories(allCourses);
-    buildFilterTabs(allCourses);
-
-    if (allCourses.length > 0) {
-      const latest = allCourses[0];
-      announcementText.value = `最新课程「${latest.title}」已上线`;
-    }
-  } catch {
-    courses.value = [];
-    categories.value = defaultCategories;
-  } finally {
-    loading.value = false;
-    categoryLoading.value = false;
-
-    // 数据加载完成后检查路由 hash，若有锚点则执行平滑滚动
-    // 用于从其他页面（如课程中心、课程详情）点击"关于我们"后跳转定位
-    const routeHash = window.location.hash;
-    if (routeHash) {
-      const sectionId = routeHash.replace('#', '');
-      const el = document.getElementById(sectionId);
-      if (el) {
-        setTimeout(() => {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 100);
-      }
+  // 数据加载完成后检查路由 hash，若有锚点则执行平滑滚动
+  const routeHash = window.location.hash;
+  if (routeHash) {
+    const sectionId = routeHash.replace('#', '');
+    const el = document.getElementById(sectionId);
+    if (el) {
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     }
   }
 });
-
-const buildCategories = (allCourses: CourseInfo[]) => {
-  const countMap = new Map<string, number>();
-  for (const c of allCourses) {
-    if (c.category) {
-      const catName = typeof c.category === 'object' && c.category ? c.category.name : c.category;
-      countMap.set(catName, (countMap.get(catName) || 0) + 1);
-    }
-  }
-  if (countMap.size > 0) {
-    categories.value = Array.from(countMap.entries()).map(([name, count]) => ({
-      name,
-      icon: categorySvgIcons[name] || categorySvgIcons['默认'],
-      count,
-    }));
-  } else {
-    categories.value = defaultCategories;
-  }
-};
-
-const buildFilterTabs = (allCourses: CourseInfo[]) => {
-  const categorySet = new Set<string>();
-  for (const c of allCourses) {
-    if (c.category) {
-      const catName = typeof c.category === 'object' && c.category ? c.category.name : c.category;
-      categorySet.add(catName);
-    }
-  }
-  const dynamicTabs = Array.from(categorySet).map(cat => ({
-    key: cat,
-    label: cat,
-  }));
-  filterTabs.value = [
-    { key: 'all', label: '全部' },
-    ...dynamicTabs,
-  ];
-};
 </script>
 
 <style scoped>
@@ -1497,6 +1580,14 @@ const buildFilterTabs = (allCourses: CourseInfo[]) => {
 .btn-text:hover {
   color: var(--va-primary-lighten);
 }
+.btn-text:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.courses-more-done {
+  font-size: 0.8125rem;
+  color: var(--va-muted);
+}
 .course-card-skeleton {
   background: var(--va-background-primary);
   border: var(--va-block-border);
@@ -2025,5 +2116,360 @@ const buildFilterTabs = (allCourses: CourseInfo[]) => {
 .badge--warning {
   background: rgba(245,158,11,0.12);
   color: var(--va-warning);
+}
+
+/* ============================================================
+ * 移动端响应式适配
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  /* ---- 顶栏 ---- */
+  .header-content {
+    padding: 0 12px;
+    height: 56px;
+  }
+
+  .logo-text {
+    font-size: 0.9375rem;
+  }
+
+  /* 导航栏在移动端只显示关键链接 + 主题切换 */
+  .nav {
+    gap: 4px;
+  }
+
+  .nav-link {
+    display: none;
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+  }
+
+  /* 只显示首页和登录/仪表盘等关键链接 */
+  .nav-link:nth-child(1),
+  .nav-link:nth-child(2),
+  .nav-link--dashboard,
+  .nav-link:last-child {
+    display: inline-flex;
+  }
+
+  .nav-btn {
+    display: inline-flex !important;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+  }
+
+  .nav-search {
+    display: none;
+  }
+
+  /* ---- 公告栏 ---- */
+  .announcement-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    margin: 12px 0 0;
+  }
+
+  .announcement-content {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .announcement-text {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .resource-tag {
+    align-self: flex-start;
+  }
+
+  /* ---- Hero 区 ---- */
+  .hero {
+    padding: 60px 16px 48px;
+    margin: 16px 0 40px;
+  }
+
+  .hero-title {
+    font-size: 1.625rem;
+    line-height: 1.2;
+  }
+
+  .hero-desc {
+    font-size: 0.9375rem;
+    margin-bottom: 28px;
+    line-height: 1.5;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .hero .btn-primary,
+  .hero .btn-secondary {
+    width: 100%;
+    max-width: 280px;
+    justify-content: center;
+    padding: 0.625rem 1.5rem;
+    font-size: 0.875rem;
+  }
+
+  .hero-badge {
+    margin-bottom: 16px;
+  }
+
+  /* 隐藏 EQ 波形减少移动端性能开销 */
+  .hero-wave-bg {
+    opacity: 0.08;
+  }
+  .eq-bar {
+    min-width: 4px;
+  }
+
+  /* ---- 分类卡片 ---- */
+  .categories-section {
+    margin-bottom: 48px;
+  }
+
+  .categories-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .category-card {
+    padding: 1rem 0.75rem;
+  }
+
+  .category-name {
+    font-size: 0.8125rem;
+  }
+
+  .category-icon svg {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  /* ---- 课程列表 ---- */
+  .courses-section {
+    margin-bottom: 48px;
+  }
+
+  .section-header {
+    margin-bottom: 20px;
+  }
+
+  .section-title {
+    font-size: 1.375rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.8125rem;
+  }
+
+  .filter-tabs {
+    gap: 6px;
+    margin-bottom: 20px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 0 4px;
+    scrollbar-width: none;
+  }
+
+  .filter-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-tab {
+    padding: 5px 14px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .courses-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .course-cover {
+    height: 180px;
+  }
+
+  .course-body {
+    padding: 0.75rem;
+  }
+
+  .course-title {
+    font-size: 0.875rem;
+  }
+
+  /* 隐藏 hover 浮层（触摸设备无 hover） */
+  .course-hover-overlay {
+    display: none;
+  }
+
+  .courses-more {
+    margin-top: 20px;
+  }
+
+  /* ---- 关于我们（导师卡片） ---- */
+  .about-section {
+    margin-bottom: 48px;
+  }
+
+  .mentor-hero-card {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 1.25rem;
+    padding: 1.25rem 1rem;
+  }
+
+  .primary-mentor-avatar-wrap {
+    width: 100px;
+    height: 100px;
+  }
+
+  .primary-mentor-avatar-ring {
+    width: 92px;
+    height: 92px;
+  }
+
+  .primary-mentor-avatar-emoji {
+    width: 80px;
+    height: 80px;
+  }
+
+  .primary-mentor-avatar-emoji svg {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .primary-mentor-info {
+    align-items: center;
+  }
+
+  .primary-mentor-badges {
+    justify-content: center;
+  }
+
+  .primary-mentor-name {
+    font-size: 1.25rem;
+  }
+
+  .primary-mentor-bio {
+    font-size: 0.8125rem;
+    max-width: 100%;
+    line-height: 1.5;
+    /* 防止文本溢出容器 */
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .primary-mentor-skills {
+    justify-content: center;
+  }
+
+  .primary-mentor-stats {
+    gap: 1rem;
+    width: 100%;
+    justify-content: space-around;
+  }
+
+  .primary-mentor-stat-value {
+    font-size: 1.125rem;
+  }
+
+  /* 次级导师卡片 */
+  .secondary-mentors-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .secondary-mentor-card {
+    padding: 1.25rem 1rem;
+  }
+
+  .secondary-mentor-bio {
+    max-width: 100%;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .secondary-mentor-stats {
+    gap: 0.75rem;
+  }
+
+  /* ---- CTA 区 ---- */
+  .cta-section {
+    margin-bottom: 48px;
+  }
+
+  .cta-card {
+    flex-direction: column;
+    padding: 1.5rem 1.25rem;
+    text-align: center;
+    gap: 1rem;
+  }
+
+  .cta-title {
+    font-size: 1.25rem;
+  }
+
+  .cta-desc {
+    font-size: 0.875rem;
+    margin-bottom: 18px;
+  }
+
+  .cta-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .cta-actions .btn-primary,
+  .cta-actions .btn-secondary {
+    width: 100%;
+    max-width: 280px;
+    justify-content: center;
+  }
+
+  .cta-decoration {
+    display: none;
+  }
+
+  .cta-emojii {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  /* ---- 页脚 ---- */
+  .footer-content {
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 0 16px;
+  }
+
+  .footer-brand {
+    max-width: 100%;
+    align-items: center;
+    text-align: center;
+  }
+
+  .footer-col {
+    align-items: center;
+    text-align: center;
+  }
+
+  .footer-socials {
+    justify-content: center;
+  }
+
+  .footer-bottom {
+    padding: 1rem 16px;
+  }
 }
 </style>

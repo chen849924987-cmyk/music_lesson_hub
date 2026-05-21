@@ -110,15 +110,37 @@
     <!-- ========== 教师专属：收款账号（仅教师角色显示） ========== -->
     <div v-if="isTeacher" class="card teacher-card">
       <h3 class="card-title">收款账号</h3>
-      <p class="card-desc">配置你的支付宝收款账号，用于提现操作</p>
+      <p class="card-desc">配置你的收款方式（支付宝或银行转账），用于提现操作</p>
 
       <div class="form-group">
-        <label class="form-label">支付宝账号</label>
+        <label class="form-label">支付宝账号（手机号）</label>
         <input
           v-model="teacherForm.paymentAccount"
           type="text"
           class="input"
-          placeholder="请输入支付宝账号"
+          placeholder="请输入支付宝账号（手机号）"
+        />
+      </div>
+
+      <h4 class="sub-title">银行转账（选填）</h4>
+
+      <div class="form-group">
+        <label class="form-label">银行账号</label>
+        <input
+          v-model="teacherForm.bankAccount"
+          type="text"
+          class="input"
+          placeholder="请输入银行卡号"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">所属支行</label>
+        <input
+          v-model="teacherForm.bankBranch"
+          type="text"
+          class="input"
+          placeholder="请输入开户支行名称"
         />
       </div>
 
@@ -322,14 +344,18 @@ const profile = ref<UserProfile>({
 /** 表单数据 */
 const form = ref({ nickname: '', email: '', phone: '', bio: '', avatar: '' });
 
-/** 教师设置表单（仅收款账号） */
+/** 教师设置表单（收款账号） */
 const teacherForm = reactive({
   paymentAccount: '',
+  bankAccount: '',
+  bankBranch: '',
 });
 
 /** 教师设置初始值（仅用于检测收款账号变更） */
 const teacherFormInitial = reactive({
   paymentAccount: '',
+  bankAccount: '',
+  bankBranch: '',
 });
 
 /** 通知偏好（独立状态，切换即保存） */
@@ -338,7 +364,9 @@ const savingNotification = ref(false);
 
 /** 教师收款账号是否变更 */
 const teacherFormChanged = computed(() => {
-  return teacherForm.paymentAccount !== teacherFormInitial.paymentAccount;
+  return teacherForm.paymentAccount !== teacherFormInitial.paymentAccount ||
+    teacherForm.bankAccount !== teacherFormInitial.bankAccount ||
+    teacherForm.bankBranch !== teacherFormInitial.bankBranch;
 });
 
 /** 密码表单 */
@@ -410,9 +438,13 @@ const loadProfile = async () => {
       const teacherInfo = (data as any).teacher;
       if (teacherInfo) {
         teacherForm.paymentAccount = teacherInfo.paymentAccount || '';
+        teacherForm.bankAccount = teacherInfo.bankAccount || '';
+        teacherForm.bankBranch = teacherInfo.bankBranch || '';
         notificationEnabled.value = teacherInfo.notificationEnabled !== false;
       }
       teacherFormInitial.paymentAccount = teacherForm.paymentAccount;
+      teacherFormInitial.bankAccount = teacherForm.bankAccount;
+      teacherFormInitial.bankBranch = teacherForm.bankBranch;
     }
   } catch (error) {
     console.error('加载用户信息失败:', error);
@@ -481,15 +513,19 @@ const handleReset = () => {
 };
 
 /**
- * 保存教师设置（仅收款账号）
+ * 保存教师设置（收款账号 + 银行账户）
  */
 const handleSaveTeacherSettings = async () => {
   teacherSaving.value = true;
   try {
     await updateTeacherSettings({
       paymentAccount: teacherForm.paymentAccount.trim() || undefined,
+      bankAccount: teacherForm.bankAccount.trim() || undefined,
+      bankBranch: teacherForm.bankBranch.trim() || undefined,
     });
     teacherFormInitial.paymentAccount = teacherForm.paymentAccount;
+    teacherFormInitial.bankAccount = teacherForm.bankAccount;
+    teacherFormInitial.bankBranch = teacherForm.bankBranch;
     ElMessage.success('收款账号已保存');
   } catch (error: any) {
     ElMessage.error(error.message || '保存收款账号失败');

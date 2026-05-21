@@ -2,35 +2,40 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, DataSource } from 'typeorm';
 import { Earning } from './entities/earning.entity';
+import { Withdrawal } from './entities/withdrawal.entity';
 import { Order } from '../orders/entities/order.entity';
 import { OrderItem } from '../orders/entities/order-item.entity';
 import { Course } from '../courses/entities/course.entity';
 import { Teacher } from '../teachers/entities/teacher.entity';
 import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/constants';
+import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
+import { BusinessException } from '../../common/dto/response.dto';
 
-  /**
-   * 收益服务
-   * 功能描述：处理教师收益的统计、记录与查询，以及超管平台收益概览
-   *
-   * 收益分配规则：
-   * - 平台分成比例：30%（平台抽成，行业常见比例）
-   * - 教师分成比例：70%（扣除平台分成后的实际到账）
-   * - 所有金额以"分"为单位存储，防止浮点数精度问题
-   *
-   * 收益触发时机：
-   * - 订单支付成功时自动创建收益记录
-   * - 退款时自动创建负向收益记录（扣减）
-   */
-  @Injectable()
-  export class EarningsService {
-    private readonly logger = new Logger(EarningsService.name);
+/**
+ * 收益服务
+ * 功能描述：处理教师收益的统计、记录与查询，以及超管平台收益概览
+ *
+ * 收益分配规则：
+ * - 平台分成比例：30%（平台抽成，行业常见比例）
+ * - 教师分成比例：70%（扣除平台分成后的实际到账）
+ * - 所有金额以"分"为单位存储，防止浮点数精度问题
+ *
+ * 收益触发时机：
+ * - 订单支付成功时自动创建收益记录
+ * - 退款时自动创建负向收益记录（扣减）
+ */
+@Injectable()
+export class EarningsService {
+  private readonly logger = new Logger(EarningsService.name);
 
-    /** 平台分成比例（百分比，默认 30%） */
-    private readonly PLATFORM_SHARE_RATE = 0.3;
+  /** 平台分成比例（百分比，默认 30%） */
+  private readonly PLATFORM_SHARE_RATE = 0.3;
 
   constructor(
     @InjectRepository(Earning)
     private readonly earningRepository: Repository<Earning>,
+    @InjectRepository(Withdrawal)
+    private readonly withdrawalRepository: Repository<Withdrawal>,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(OrderItem)
@@ -42,14 +47,12 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
     private readonly dataSource: DataSource,
   ) {}
 
+  // ================================================================
+  // 收益记录
+  // ================================================================
+
   /**
    * 订单支付成功后创建收益记录
-   * 功能描述：根据已支付订单的明细，按课程归属教师创建收益记录。
-   *          - 普通课程订单：按 OrderItem 中的 courseId 查找课程归属教师
-   *          - 课时单独购买订单：按课时关联的课程查找教师
-   *          同时更新教师的 totalEarnings 和 withdrawableBalance 字段
-   *
-   * @param orderId 已支付订单ID
    */
   async createEarningsFromOrder(orderId: number): Promise<void> {
     const order = await this.orderRepository.findOne({
@@ -67,7 +70,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       return;
     }
 
-    // 获取所有课程ID并查询课程和归属教师
     const courseIds = [...new Set(items.map((item) => item.courseId))];
     const courses = await this.courseRepository.find({
       where: courseIds.map((id) => ({ id })),
@@ -75,19 +77,12 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
     });
     const courseMap = new Map(courses.map((c) => [c.id, c]));
 
-    // 按教师分组累计收益
     const earningsByTeacher = new Map<number, { teacherId: number; totalAmount: number; details: { courseId: number; courseTitle: string; price: number; orderItemId: number }[] }>();
 
     for (const item of items) {
       const course = courseMap.get(item.courseId);
-      if (!course) {
-        this.logger.warn(`课程 ${item.courseId} 不存在，跳过收益项`);
-        continue;
-      }
-      if (!course.teacherId) {
-        this.logger.warn(`课程 ${item.courseId} 无归属教师，跳过收益项`);
-        continue;
-      }
+      if (!course) continue;
+      if (!course.teacherId) continue;
 
       const teacherId = course.teacherId;
       if (!earningsByTeacher.has(teacherId)) {
@@ -103,18 +98,13 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       });
     }
 
-    if (earningsByTeacher.size === 0) {
-      this.logger.warn(`订单 ${orderId} 无有效收益项，跳过`);
-      return;
-    }
+    if (earningsByTeacher.size === 0) return;
 
-    // 使用事务创建收益记录并更新教师余额
     await this.dataSource.transaction(async (manager) => {
       for (const [, entry] of earningsByTeacher) {
         const platformShare = Math.round(entry.totalAmount * this.PLATFORM_SHARE_RATE);
         const actualAmount = entry.totalAmount - platformShare;
 
-        // 创建收益记录（合并该教师在本订单中的所有收益为一条记录）
         const earning = this.earningRepository.create({
           teacherId: entry.teacherId,
           orderId: order.id,
@@ -131,7 +121,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
         });
         await manager.save(Earning, earning);
 
-        // 更新教师收益余额
         await manager
           .createQueryBuilder()
           .update(Teacher)
@@ -149,30 +138,19 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
 
   /**
    * 退款时扣减收益记录
-   * 功能描述：订单退款后，创建负向收益记录并扣减教师余额
-   *
-   * @param orderId 已退款订单ID
    */
   async deductEarningsFromRefund(orderId: number): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
       relations: ['items'],
     });
-    if (!order || order.status !== OrderStatus.REFUNDED) {
-      this.logger.warn(`订单 ${orderId} 未退款或不存在，跳过收益扣减`);
-      return;
-    }
+    if (!order || order.status !== OrderStatus.REFUNDED) return;
 
-    // 查找该订单原有的收益记录
     const earnings = await this.earningRepository.find({ where: { orderId } });
-    if (earnings.length === 0) {
-      this.logger.warn(`订单 ${orderId} 无原有收益记录，跳过扣减`);
-      return;
-    }
+    if (earnings.length === 0) return;
 
     await this.dataSource.transaction(async (manager) => {
       for (const earning of earnings) {
-        // 创建扣减记录（负向收益）
         const deductRecord = this.earningRepository.create({
           teacherId: earning.teacherId,
           orderId: order.id,
@@ -187,7 +165,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
         });
         await manager.save(Earning, deductRecord);
 
-        // 扣减教师余额（原路扣回）
         await manager
           .createQueryBuilder()
           .update(Teacher)
@@ -199,17 +176,259 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
           .execute();
       }
     });
+  }
 
-    this.logger.log(`订单 ${order.orderNo} 收益扣减完成，共 ${earnings.length} 条记录`);
+  // ================================================================
+  // 提现管理
+  // ================================================================
+
+  /**
+   * 教师申请提现
+   * 功能描述：校验教师余额充足后创建提现申请记录。
+   *          收款账号从教师个人设置（paymentAccount）中自动读取，
+   *          教师只需输入提现金额。
+   *
+   * @param teacherId 教师ID
+   * @param dto 提现参数（金额：元）
+   * @returns 创建的提现申请
+   *
+   * @throws BusinessException.badRequest 未设置收款账号或余额不足
+   */
+  async applyWithdrawal(teacherId: number, dto: CreateWithdrawalDto): Promise<Withdrawal> {
+    const teacher = await this.teacherRepository.findOne({ where: { id: teacherId } });
+    if (!teacher) {
+      throw new NotFoundException('教师信息不存在');
+    }
+
+    // 金额转换：元 → 分
+    const amountInCents = Math.round(dto.amount * 100);
+
+    // 校验余额
+    if (Number(teacher.withdrawableBalance) < amountInCents) {
+      throw BusinessException.badRequest('可提现余额不足');
+    }
+
+    // 校验最低提现金额（1元 = 100分）
+    if (amountInCents < 100) {
+      throw BusinessException.badRequest('最低提现金额为 1 元');
+    }
+
+    // 从教师个人设置中自动读取收款账号
+    const accountInfo = teacher.paymentAccount || '';
+    if (!accountInfo) {
+      throw BusinessException.badRequest('请先在个人中心设置收款账号');
+    }
+
+    // 创建提现申请
+    const withdrawal = this.withdrawalRepository.create({
+      teacherId,
+      amount: amountInCents,
+      accountInfo,
+      status: 'pending',
+    });
+
+    const saved = await this.withdrawalRepository.save(withdrawal);
+
+    // 冻结余额：从 withdrawableBalance 中扣减申请金额
+    await this.teacherRepository
+      .createQueryBuilder()
+      .update(Teacher)
+      .set({
+        withdrawableBalance: () => `withdrawableBalance - ${amountInCents}`,
+      })
+      .where('id = :teacherId', { teacherId })
+      .execute();
+
+    // 创建提现类型的收益记录（负向）
+    const earningRecord = this.earningRepository.create({
+      teacherId,
+      orderId: null as any,
+      courseId: null as any,
+      courseTitle: '提现申请',
+      amount: -amountInCents,
+      platformShare: 0,
+      actualAmount: -amountInCents,
+      type: 'withdrawal',
+      status: EarningStatus.SETTLED,
+      remark: `提现申请 #${saved.id}：¥${dto.amount} 至 ${accountInfo}`,
+    });
+    await this.earningRepository.save(earningRecord);
+
+    this.logger.log(`教师 ${teacherId} 提交提现申请 #${saved.id}：${dto.amount} 元`);
+    return saved;
   }
 
   /**
-   * 获取教师收益统计
-   * 功能描述：返回当前教师的收益概览，包括总收入、可提现余额、待结算金额、已提现金额
+   * 管理端审核提现
+   * 功能描述：审核提现申请，通过则标记为到账，驳回则恢复余额
    *
-   * @param teacherId 教师ID
-   * @returns 收益统计数据
+   * @param withdrawalId 提现申请ID
+   * @param reviewerId 审核人用户ID
+   * @param action 审核动作：approved-通过 rejected-驳回
+   * @param remark 审核意见（驳回时必填）
+   * @returns 更新后的提现申请
    */
+  async reviewWithdrawal(
+    withdrawalId: number,
+    reviewerId: number,
+    action: 'approved' | 'rejected',
+    remark?: string,
+  ): Promise<Withdrawal> {
+    const withdrawal = await this.withdrawalRepository.findOne({
+      where: { id: withdrawalId },
+    });
+    if (!withdrawal) {
+      throw new NotFoundException('提现申请不存在');
+    }
+
+    if (withdrawal.status !== 'pending') {
+      throw BusinessException.badRequest('该提现申请已处理，不能重复审核');
+    }
+
+    if (action === 'rejected' && !remark) {
+      throw BusinessException.badRequest('驳回时必须填写原因');
+    }
+
+    const finalRemark = remark || '审核通过，已打款';
+
+    // 使用事务保证原子性
+    await this.dataSource.transaction(async (manager) => {
+      if (action === 'approved') {
+        // 审核通过：标记已到账
+        withdrawal.status = 'approved';
+        withdrawal.reviewerId = reviewerId;
+        withdrawal.remark = finalRemark;
+        withdrawal.processedAt = new Date();
+
+        // 更新教师的已提现金额
+        await manager
+          .createQueryBuilder()
+          .update(Teacher)
+          .set({
+            withdrawnAmount: () => `withdrawnAmount + ${withdrawal.amount}`,
+          })
+          .where('id = :teacherId', { teacherId: withdrawal.teacherId })
+          .execute();
+
+        // 创建已提现收益记录
+        const earningRecord = this.earningRepository.create({
+          teacherId: withdrawal.teacherId,
+          orderId: null as any,
+          courseId: null as any,
+          courseTitle: '提现到账',
+          amount: -withdrawal.amount,
+          platformShare: 0,
+          actualAmount: -withdrawal.amount,
+          type: 'withdrawal',
+          status: EarningStatus.SETTLED,
+          remark: `提现申请 #${withdrawal.id} 审核通过，已打款`,
+        });
+        await manager.save(Earning, earningRecord);
+
+      } else {
+        // 审核驳回：恢复余额
+        withdrawal.status = 'rejected';
+        withdrawal.reviewerId = reviewerId;
+        withdrawal.remark = remark as string;
+        withdrawal.processedAt = new Date();
+
+        // 恢复冻结的可提现余额
+        await manager
+          .createQueryBuilder()
+          .update(Teacher)
+          .set({
+            withdrawableBalance: () => `withdrawableBalance + ${withdrawal.amount}`,
+          })
+          .where('id = :teacherId', { teacherId: withdrawal.teacherId })
+          .execute();
+      }
+
+      await manager.save(Withdrawal, withdrawal);
+    });
+
+    this.logger.log(
+      `提现申请 #${withdrawalId} ${action === 'approved' ? '审核通过' : '已驳回'}`,
+    );
+    return withdrawal;
+  }
+
+  /**
+   * 获取教师的提现记录列表
+   * @param teacherId 教师ID
+   * @param page 页码
+   * @param pageSize 每页条数
+   */
+  async getTeacherWithdrawals(
+    teacherId: number,
+    page: number = 1,
+    pageSize: number = 20,
+  ): Promise<{ items: Withdrawal[]; meta: any }> {
+    const [items, total] = await this.withdrawalRepository.findAndCount({
+      where: { teacherId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  /**
+   * 获取所有提现记录（管理端）
+   * @param page 页码
+   * @param pageSize 每页条数
+   * @param status 状态筛选（可选）
+   */
+  async getAllWithdrawals(
+    page: number = 1,
+    pageSize: number = 20,
+    status?: string,
+  ): Promise<{ items: Withdrawal[]; meta: any }> {
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+
+    const [items, total] = await this.withdrawalRepository.findAndCount({
+      where,
+      relations: ['teacher'],
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  /**
+   * 获取待审核提现数量（管理端控制台用）
+   */
+  async countPendingWithdrawals(): Promise<number> {
+    return this.withdrawalRepository.count({
+      where: { status: 'pending' },
+    });
+  }
+
+  // ================================================================
+  // 教师收益统计
+  // ================================================================
+
   async getTeacherEarningStats(teacherId: number): Promise<{
     totalEarnings: number;
     balance: number;
@@ -224,27 +443,14 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
     return {
       totalEarnings: Number(teacher.totalEarnings),
       balance: Number(teacher.withdrawableBalance),
-      pendingSettlement: 0, // 当前所有收益均为实时结算，后续可扩展提现审核流程时改为 pending
+      pendingSettlement: 0,
       totalWithdrawn: Number(teacher.withdrawnAmount),
     };
   }
 
-  /**
-   * 获取教师收益明细（分页）
-   * 功能描述：返回教师的所有收益流水记录，支持按时间范围筛选
-   *
-   * @param teacherId 教师ID
-   * @param params 分页和筛选参数
-   * @returns 收益明细列表（含分页）
-   */
   async getTeacherEarningDetail(
     teacherId: number,
-    params: {
-      page?: number;
-      pageSize?: number;
-      startDate?: string;
-      endDate?: string;
-    },
+    params: { page?: number; pageSize?: number; startDate?: string; endDate?: string },
   ) {
     const { page = PAGINATION.DEFAULT_PAGE, pageSize = PAGINATION.DEFAULT_PAGE_SIZE, startDate, endDate } = params;
 
@@ -267,12 +473,7 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
 
     return {
       items,
-      meta: {
-        total,
-        page,
-        pageSize,
-        totalPages: Math.ceil(total / pageSize),
-      },
+      meta: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
     };
   }
 
@@ -280,20 +481,10 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
   // 超管平台收益统计
   // ================================================================
 
-  /**
-   * 获取平台收益总览（超管用）
-   * 功能描述：返回平台整体收益数据，包括总流水、平台分成收入、教师总收益等
-   *
-   * @returns 平台收益统计
-   */
   async getPlatformEarningStats(): Promise<{
-    totalRevenue: number;        // 总流水（所有订单已支付金额，单位：分）
-    platformIncome: number;      // 平台分成总收入（单位：分）
-    teacherEarnings: number;     // 教师总收益（单位：分）
-    totalWithdrawn: number;      // 教师已提现总额（单位：分）
-    orderCount: number;          // 已支付订单总数
+    totalRevenue: number; platformIncome: number; teacherEarnings: number;
+    totalWithdrawn: number; orderCount: number;
   }> {
-    // 总流水：所有已支付订单的总金额
     const revenueResult = await this.orderRepository
       .createQueryBuilder('order')
       .select('COALESCE(SUM(order.totalAmount), 0)', 'total')
@@ -301,12 +492,8 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       .getRawOne();
     const totalRevenue = Number(revenueResult?.total || 0);
 
-    // 已支付订单数
-    const orderCount = await this.orderRepository.count({
-      where: { status: OrderStatus.PAID },
-    });
+    const orderCount = await this.orderRepository.count({ where: { status: OrderStatus.PAID } });
 
-    // 平台分成总收入
     const platformResult = await this.earningRepository
       .createQueryBuilder('earning')
       .select('COALESCE(SUM(earning.platformShare), 0)', 'total')
@@ -314,7 +501,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       .getRawOne();
     const platformIncome = Number(platformResult?.total || 0);
 
-    // 教师总收益（所有 course_sale 类型的 actualAmount 总和，即扣除平台分成后的实际到账）
     const teacherResult = await this.earningRepository
       .createQueryBuilder('earning')
       .select('COALESCE(SUM(earning.actualAmount), 0)', 'total')
@@ -322,34 +508,17 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       .getRawOne();
     const teacherEarnings = Number(teacherResult?.total || 0);
 
-    // 教师已提现总额
     const withdrawalResult = await this.teacherRepository
       .createQueryBuilder('teacher')
       .select('COALESCE(SUM(teacher.withdrawnAmount), 0)', 'total')
       .getRawOne();
     const totalWithdrawn = Number(withdrawalResult?.total || 0);
 
-    return {
-      totalRevenue,
-      platformIncome,
-      teacherEarnings,
-      totalWithdrawn,
-      orderCount,
-    };
+    return { totalRevenue, platformIncome, teacherEarnings, totalWithdrawn, orderCount };
   }
 
-  /**
-   * 获取平台收益趋势数据（按天统计最近N天）
-   * 功能描述：用于管理端收益趋势图表展示
-   *
-   * @param days 最近N天，默认30天
-   * @returns 每日收益数据
-   */
   async getPlatformEarningTrend(days: number = 30): Promise<{
-    date: string;
-    revenue: number;       // 当日流水
-    platformIncome: number; // 当日平台分成
-    teacherEarnings: number; // 当日教师收益
+    date: string; revenue: number; platformIncome: number; teacherEarnings: number;
   }[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -368,8 +537,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
       .orderBy('DATE(earning.createdAt)', 'ASC')
       .getRawMany();
 
-    // TypeORM getRawMany() 返回的 key 格式为 "表名_字段别名"（如 earning_date、earning_revenue）
-    // 同时兼容可能不带前缀的格式
     return earnings.map((e: any) => ({
       date: e.date || e.earning_date || '',
       revenue: Number(e.revenue ?? e.earning_revenue ?? 0),
@@ -378,18 +545,8 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
     }));
   }
 
-  /**
-   * 获取课程收益排行榜（超管用）
-   * 功能描述：按课程维度统计收益，返回收益最高的课程列表
-   *
-   * @param limit 返回条数，默认10
-   * @returns 课程收益排行榜
-   */
   async getTopEarningCourses(limit: number = 10): Promise<{
-    courseId: number;
-    courseTitle: string;
-    totalAmount: number;
-    orderCount: number;
+    courseId: number; courseTitle: string; totalAmount: number; orderCount: number;
   }[]> {
     const results = await this.earningRepository
       .createQueryBuilder('earning')
@@ -414,24 +571,12 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
     }));
   }
 
-  /**
-   * 获取教师收益排行榜（超管用）
-   * 功能描述：按教师维度统计收益，返回收益最高的教师列表
-   *
-   * @param limit 返回条数，默认10
-   * @returns 教师收益排行榜
-   */
   async getTopEarningTeachers(limit: number = 10): Promise<{
-    teacherId: number;
-    realName: string;
-    totalAmount: number;
+    teacherId: number; realName: string; totalAmount: number;
   }[]> {
     const results = await this.earningRepository
       .createQueryBuilder('earning')
-      .select([
-        'earning.teacherId as teacherId',
-        'COALESCE(SUM(earning.amount), 0) as totalAmount',
-      ])
+      .select(['earning.teacherId as teacherId', 'COALESCE(SUM(earning.amount), 0) as totalAmount'])
       .where('earning.type = :type', { type: 'course_sale' })
       .groupBy('earning.teacherId')
       .orderBy('totalAmount', 'DESC')
@@ -440,7 +585,6 @@ import { OrderStatus, OrderType, EarningStatus, PAGINATION } from '../../common/
 
     if (results.length === 0) return [];
 
-    // 补充教师姓名
     const teacherIds = results.map((r: any) => r.teacherId);
     const teachers = await this.teacherRepository.find({
       where: teacherIds.map((id) => ({ id })),

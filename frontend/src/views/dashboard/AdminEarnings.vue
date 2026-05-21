@@ -435,27 +435,28 @@ const fetchAllData = async () => {
       getTopEarningCourses(10),
       getTopEarningTeachers(10),
     ]);
-    // 后端数据以"分"为单位存储，前端展示统一除以100转换为"元"
+    // 后端 EarningsController 已统一将分转换为元，
+    // 此处直接使用后端返回数据，无需再次除100
     platformStats.value = {
       ...stats,
-      totalRevenue: stats.totalRevenue / 100,
-      platformIncome: stats.platformIncome / 100,
-      teacherEarnings: stats.teacherEarnings / 100,
-      totalWithdrawn: stats.totalWithdrawn / 100,
+      totalRevenue: stats.totalRevenue,
+      platformIncome: stats.platformIncome,
+      teacherEarnings: stats.teacherEarnings,
+      totalWithdrawn: stats.totalWithdrawn,
     };
     trendData.value = trend.map((item) => ({
       ...item,
-      revenue: item.revenue / 100,
-      platformIncome: item.platformIncome / 100,
-      teacherEarnings: item.teacherEarnings / 100,
+      revenue: item.revenue,
+      platformIncome: item.platformIncome,
+      teacherEarnings: item.teacherEarnings,
     }));
     topCourses.value = courses.map((item) => ({
       ...item,
-      totalAmount: item.totalAmount / 100,
+      totalAmount: item.totalAmount,
     }));
     topTeachers.value = teachers.map((item) => ({
       ...item,
-      totalAmount: item.totalAmount / 100,
+      totalAmount: item.totalAmount,
     }));
   } catch (error) {
     console.error('获取收益数据失败:', error);

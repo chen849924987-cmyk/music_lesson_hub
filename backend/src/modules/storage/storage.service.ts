@@ -93,6 +93,40 @@ export class StorageService {
   }
 
   /**
+   * 获取文件的公开访问URL（用于封面等公开资源的浏览器直接访问）
+   * 功能描述：与 getPresignedUrl 不同，此方法返回不含签名参数的 Nginx 直链，
+   *          辅以时间戳参数确保封面更新后浏览器缓存即时失效。
+   *          封面图片是公开资源，无需签名保护。
+   * @param objectName - 对象名称
+   * @param timestamp - 可选的时间戳（用于缓存失效，传封面更新时间）
+   * @returns Nginx 代理直链URL
+   */
+  async getPublicUrl(objectName: string, timestamp?: string | number): Promise<string> {
+    try {
+      const tailscaleHost = this.configService.get<string>('TAILSCALE_HOST') || '';
+      const cacheBuster = timestamp ? `?t=${timestamp}` : '';
+      
+      // Tailscale 模式下通过 Nginx 代理路径访问
+      if (tailscaleHost) {
+        return `https://${tailscaleHost}/minio-files/${this.bucket}/${objectName}${cacheBuster}`;
+      }
+      
+      // Docker 模式下直接访问 MinIO 的公开端口
+      const endPoint = this.configService.get<string>('minio.endPoint') ?? '';
+      if (endPoint !== '127.0.0.1' && endPoint !== 'localhost') {
+        return `http://localhost:9000/${this.bucket}/${objectName}${cacheBuster}`;
+      }
+      
+      // 本机开发环境：使用预签名 URL（仅开发环境走签名）
+      const url = await this.minioClient.presignedGetObject(this.bucket, objectName, 86400);
+      return url;
+    } catch (error: unknown) {
+      this.logger.warn(`获取公开URL失败，回退到签名URL: ${this.bucket}/${objectName} - ${(error as Error).message}`);
+      return this.getPresignedUrl(objectName, 86400);
+    }
+  }
+
+  /**
    * 获取文件的签名访问URL（带过期时间，用于视频播放和文件下载）
    * @param objectName - 对象名称
    * @param expiry - 过期时间（秒），默认 3600（1小时）
@@ -100,6 +134,23 @@ export class StorageService {
    */
   async getPresignedUrl(objectName: string, expiry: number = 3600): Promise<string> {
     try {
+      const endPoint = this.configService.get<string>('minio.endPoint') ?? '';
+      const tailscaleHost = this.configService.get<string>('TAILSCALE_HOST') || '';
+      
+      // 模式三：Tailscale / Docker + Tailscale Funnel
+      // 通过 Nginx 代理路径 /minio-files/ 访问 MinIO，域名用 Tailscale 地址
+      if (tailscaleHost) {
+        return `https://${tailscaleHost}/minio-files/${this.bucket}/${objectName}`;
+      }
+      
+      // 模式二：纯 Docker（localhost）
+      // MINIO_ENDPOINT 为服务名（如 minio），bucket 已设为公开
+      if (endPoint !== '127.0.0.1' && endPoint !== 'localhost') {
+        return `http://localhost:9000/${this.bucket}/${objectName}`;
+      }
+      
+      // 模式一：本机开发环境（127.0.0.1 / localhost）
+      // 使用预签名 URL（安全）
       const url = await this.minioClient.presignedGetObject(this.bucket, objectName, expiry);
       return url;
     } catch (error: unknown) {

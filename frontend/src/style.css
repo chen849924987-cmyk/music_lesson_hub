@@ -3,6 +3,7 @@
  *
  * 功能描述：提供双主题（亮色/暗色）的 CSS 变量体系、全局重置样式、
  *           基础排版规范、过渡动画定义以及通用工具类。
+ *           包含响应式断点（Responsive Breakpoints）和移动端适配。
  *
  * 设计参考：Vuestic UI (https://vuestic.dev) 的设计令牌 (Design Tokens)
  * 字体方案：Source Sans Pro（自托管 woff2，支持 Regular/Regular Italic/
@@ -88,6 +89,9 @@ html {
   min-height: 100vh;
   line-height: 1.15;
   -webkit-text-size-adjust: 100%;
+  /* 防止任何子元素溢出导致水平滚动 */
+  overflow-x: hidden;
+  width: 100%;
 }
 
 body {
@@ -95,6 +99,9 @@ body {
   min-height: 100vh;
   position: relative;
   line-height: 1;
+  /* 防止任何子元素溢出导致水平滚动 */
+  overflow-x: hidden;
+  width: 100%;
 }
 
 /* 全局盒模型统一为 border-box */
@@ -360,6 +367,25 @@ q::before, q::after {
 }
 
 /* ============================================================
+ * 2.3 响应式断点 CSS 变量
+ * 移动端适配：在屏幕 < 768px 时覆盖部分变量以实现紧凑布局
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  :root {
+    /* 主内容区内边距缩小 */
+    --va-content-padding-mobile: 0.75rem;
+    /* 顶部栏高度缩小 */
+    --va-topbar-height-mobile: 48px;
+    /* 侧边栏宽度（移动端全屏抽屉） */
+    --va-sidebar-width-mobile: 100%;
+    /* 间距缩小 */
+    --va-gap-large: 0.5rem;
+    /* 卡片内边距缩小 */
+    --va-card-padding-mobile: 1rem;
+  }
+}
+
+/* ============================================================
  * 3. 基础排版 (Base Typography)
  * ============================================================ */
 body {
@@ -407,6 +433,16 @@ h3 { font-size: 2rem;    line-height: 2.5rem; margin: 0.5rem 0; font-weight: 700
 h4 { font-size: 1.75rem; line-height: 2rem;   margin: 0.5rem 0; font-weight: 700; }
 h5 { font-size: 1.5rem;  line-height: 1.75rem;margin: 0.5rem 0; font-weight: 700; }
 h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700; }
+
+/* ---- 移动端排版缩放 ---- */
+@media (max-width: 767.98px) {
+  h1 { font-size: 1.75rem; line-height: 2.25rem; }
+  h2 { font-size: 1.5rem;  line-height: 2rem; }
+  h3 { font-size: 1.25rem; line-height: 1.75rem; }
+  h4 { font-size: 1.125rem;line-height: 1.5rem; }
+  h5 { font-size: 1rem;    line-height: 1.375rem; }
+  h6 { font-size: 0.9375rem;line-height: 1.25rem; }
+}
 
 /* ---- 小标题（Card / Section 标题 10px uppercase） ---- */
 .va-title {
@@ -577,6 +613,22 @@ h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700
   border-bottom: 1px solid var(--va-background-element);
 }
 
+/* ---- 移动端表格横向滚动 ---- */
+@media (max-width: 767.98px) {
+  .va-table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -0.75rem;
+    padding: 0 0.75rem;
+  }
+
+  .va-table th,
+  .va-table td {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.8125rem;
+  }
+}
+
 /* ============================================================
  * 4. 滚动条样式
  * ============================================================ */
@@ -651,6 +703,14 @@ h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700
 .w-full { width: 100%; }
 .h-full { height: 100%; }
 
+/* 响应式显示/隐藏工具 */
+@media (max-width: 767.98px) {
+  .hide-mobile { display: none !important; }
+}
+@media (min-width: 768px) {
+  .show-mobile { display: none !important; }
+}
+
 /* 卡片样式 (基于 Vuestic 卡片体系) */
 .card {
   background-color: var(--va-background-primary);
@@ -663,6 +723,13 @@ h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700
 
 .card:hover {
   box-shadow: var(--va-box-shadow);
+}
+
+/* 移动端卡片内边距缩小 */
+@media (max-width: 767.98px) {
+  .card {
+    padding: var(--va-card-padding-mobile, 1rem);
+  }
 }
 
 /* 按钮基础样式 */
@@ -744,6 +811,20 @@ h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700
 .btn-group {
   display: inline-flex;
   gap: var(--va-gap-medium);
+}
+
+/* 移动端按钮组堆叠 */
+@media (max-width: 767.98px) {
+  .btn-group-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--va-gap-medium);
+    width: 100%;
+  }
+
+  .btn-group-mobile .btn {
+    width: 100%;
+  }
 }
 
 /* 输入框基础样式 */
@@ -887,6 +968,13 @@ h6 { font-size: 1.25rem; line-height: 1.5rem; margin: 0.5rem 0; font-weight: 700
 .empty-state__text {
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+/* 移动端空状态 */
+@media (max-width: 767.98px) {
+  .empty-state {
+    padding: 2rem 1rem;
+  }
 }
 
 /* 提示信息块 */

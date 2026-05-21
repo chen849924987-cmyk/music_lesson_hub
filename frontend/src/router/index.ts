@@ -244,6 +244,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '收益看板', requiresAuth: true, role: 'admin' },
       },
       {
+        path: 'withdrawals',
+        name: 'AdminWithdrawals',
+        component: () => import('../views/dashboard/AdminWithdrawals.vue'),
+        meta: { title: '提现审核', requiresAuth: true, role: 'admin' },
+      },
+      {
         path: 'profile',
         name: 'AdminProfile',
         component: () => import('../views/dashboard/ProfilePage.vue'),

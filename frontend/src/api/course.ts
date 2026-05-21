@@ -727,12 +727,17 @@ export function getTeacherProducers(params: {
  * 功能描述：返回教师的收益概览，包括总收入、可提现余额、待结算金额等
  * @returns 收益统计数据
  */
-export function getEarningsStats(): Promise<{
+export interface EarningsStats {
   totalEarnings: number;
   balance: number;
   pendingSettlement: number;
   totalWithdrawn: number;
-}> {
+  paymentAccount: string;
+  bankAccount: string;
+  bankBranch: string;
+}
+
+export function getEarningsStats(): Promise<EarningsStats> {
   return get('/earnings/stats');
 }
 
@@ -780,14 +785,14 @@ export function getWithdrawals(params: {
 }
 
 /**
- * 申请提现（v2.8）
- * 功能描述：教师发起提现申请，将余额提现到支付宝账号
- * @param data 提现参数
+ * 申请提现（v5.1）
+ * 功能描述：教师发起提现申请。
+ *          教师只需输入提现金额，收款账号从教师个人设置中自动读取。
+ * @param data 提现参数（仅需金额）
  * @returns 提现申请结果
  */
 export function applyWithdrawal(data: {
   amount: number;
-  accountInfo: string;
 }): Promise<void> {
   return post('/earnings/withdrawals', data);
 }
@@ -802,6 +807,8 @@ export function applyWithdrawal(data: {
  */
 export function updateTeacherSettings(data: {
   paymentAccount?: string;
+  bankAccount?: string;
+  bankBranch?: string;
   notificationEnabled?: boolean;
 }): Promise<void> {
   return put('/teachers/settings', data);

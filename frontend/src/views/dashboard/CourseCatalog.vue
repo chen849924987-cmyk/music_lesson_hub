@@ -774,4 +774,116 @@ onMounted(() => {
   font-size: 0.8125rem;
   border-top: var(--va-block-border);
 }
+
+/* ============================================================
+ * 移动端响应式适配
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  /* ---- 顶部导航栏紧凑化 ---- */
+  .header-inner {
+    padding: 0 0.75rem;
+    height: 56px;
+  }
+
+  .brand {
+    font-size: 0.9375rem;
+  }
+
+  .header-right {
+    gap: 4px;
+  }
+
+  .header-nav {
+    display: none;
+  }
+
+  .nav-link {
+    display: none;
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+  }
+
+  .nav-link--dashboard,
+  .nav-link:last-child {
+    display: inline-flex;
+  }
+
+  .nav-btn {
+    display: inline-flex !important;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+  }
+
+  /* ---- 筛选栏紧凑化 ---- */
+  .filter-inner {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+    flex-direction: column;
+  }
+
+  .filter-search {
+    width: 100%;
+  }
+
+  .filter-categories {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 0 4px;
+    scrollbar-width: none;
+  }
+
+  .filter-categories::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-tag {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.625rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ---- 课程网格单列 ---- */
+  .catalog-main {
+    padding: 1rem 0.75rem;
+  }
+
+  .course-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .card-body {
+    padding: 0.75rem;
+  }
+
+  .card-title {
+    font-size: 0.9375rem;
+  }
+
+  .card-desc {
+    font-size: 0.75rem;
+  }
+
+  .card-meta {
+    gap: 0.75rem;
+  }
+
+  .card-meta-item {
+    font-size: 0.6875rem;
+  }
+
+  /* ---- 分页紧凑化 ---- */
+  .pagination {
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+  }
+
+  .pagination-info {
+    font-size: 0.75rem;
+  }
+}
 </style>

@@ -518,4 +518,86 @@ const handleRegister = async () => {
   opacity: 0.25;
   animation: indicatorPulse 2s ease-in-out infinite;
 }
+
+/* ============================================================
+ * 移动端响应式适配
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  .theme-toggle-wrapper {
+    top: 0.75rem;
+    right: 0.75rem;
+    gap: 6px;
+  }
+
+  .theme-toggle-wrapper .el-button {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+  }
+
+  .register-container {
+    width: 92%;
+    max-width: 400px;
+    padding: 28px 20px 24px;
+    margin: 0 auto;
+    border-radius: 12px;
+  }
+
+  .register-title {
+    font-size: 1.375rem;
+  }
+
+  .register-subtitle {
+    font-size: 0.8125rem;
+  }
+
+  .register-header {
+    margin-bottom: 24px;
+  }
+
+  .logo-icon svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .logo-ring {
+    width: 48px;
+    height: 48px;
+  }
+
+  :deep(.register-form .el-form-item) {
+    margin-bottom: 16px;
+  }
+
+  :deep(.daw-input .el-input__wrapper) {
+    padding: 0 8px;
+  }
+
+  .register-button {
+    height: 42px;
+    font-size: 0.875rem;
+    letter-spacing: 2px;
+  }
+
+  .register-footer {
+    font-size: 0.8125rem;
+  }
+
+  .beat-line {
+    margin-top: 16px;
+    padding-top: 14px;
+  }
+
+  .floating-notes {
+    opacity: 0.3;
+  }
+
+  .bg-waveform {
+    height: 120px;
+    opacity: 0.08;
+  }
+
+  .vu-decor {
+    margin-bottom: 16px;
+  }
+}
 </style>

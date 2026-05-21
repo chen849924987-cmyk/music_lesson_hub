@@ -7,14 +7,17 @@ import { Lesson } from './entities/lesson.entity';
 import { CourseReview } from './entities/course-review.entity';
 import { UserCourse } from './entities/user-course.entity';
 import { UserLesson } from './entities/user-lesson.entity';
+import { Evaluation } from './entities/evaluation.entity';
 import { CategoriesService } from './categories.service';
 import { CoursesService } from './courses.service';
 import { ChaptersService } from './chapters.service';
 import { LessonsService } from './lessons.service';
+import { EvaluationsService } from './evaluations.service';
 import { CategoriesController } from './categories.controller';
 import { CoursesController } from './courses.controller';
 import { ChaptersController } from './chapters.controller';
 import { LessonsController } from './lessons.controller';
+import { EvaluationsController } from './evaluations.controller';
 import { VideosModule } from '../videos/videos.module';
 
 /**
@@ -31,7 +34,7 @@ import { VideosModule } from '../videos/videos.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Category, Course, Chapter, Lesson, CourseReview, UserCourse, UserLesson]),
+    TypeOrmModule.forFeature([Category, Course, Chapter, Lesson, CourseReview, UserCourse, UserLesson, Evaluation]),
     VideosModule,
   ],
   controllers: [
@@ -39,12 +42,14 @@ import { VideosModule } from '../videos/videos.module';
     CoursesController,
     ChaptersController,
     LessonsController,
+    EvaluationsController,
   ],
   providers: [
     CategoriesService,
     CoursesService,
     ChaptersService,
     LessonsService,
+    EvaluationsService,
   ],
   exports: [
     CoursesService,

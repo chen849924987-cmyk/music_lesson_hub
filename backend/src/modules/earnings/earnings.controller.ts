@@ -4,6 +4,7 @@ import {
   Post,
   Param,
   Query,
+  Body,
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/constants';
 import { ApiResponse } from '../../common/dto/response.dto';
 import { TeachersService } from '../teachers/teachers.service';
+import { CreateWithdrawalDto, ReviewWithdrawalDto } from './dto/create-withdrawal.dto';
 
 /**
  * 收益控制器
@@ -47,12 +49,15 @@ export class EarningsController {
   async getTeacherStats(@CurrentUser('sub') userId: number) {
     const teacher = await this.teachersService.findByUserId(userId);
     const stats = await this.earningsService.getTeacherEarningStats(teacher.id);
-    // 将分转换为元（前端展示用）
+    // 将分转换为元（前端展示用），同时返回收款账号信息
     return ApiResponse.success({
       totalEarnings: stats.totalEarnings / 100,
       balance: stats.balance / 100,
       pendingSettlement: stats.pendingSettlement / 100,
       totalWithdrawn: stats.totalWithdrawn / 100,
+      paymentAccount: teacher.paymentAccount || '',
+      bankAccount: teacher.bankAccount || '',
+      bankBranch: teacher.bankBranch || '',
     });
   }
 
@@ -95,11 +100,42 @@ export class EarningsController {
     return ApiResponse.successWithPagination(items, result.meta);
   }
 
+  // ================================================================
+  // 提现管理（v5.1 新增）
+  // ================================================================
+
+  /**
+   * 教师申请提现
+   * POST /api/v1/earnings/withdrawals
+   *
+   * 功能描述：教师提交提现申请，校验余额后创建提现记录并冻结金额
+   *
+   * @param userId 当前教师用户ID
+   * @param dto 提现参数（金额：元，收款账号）
+   */
+  @Post('withdrawals')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.TEACHER)
+  async applyWithdrawal(
+    @CurrentUser('sub') userId: number,
+    @Body() dto: CreateWithdrawalDto,
+  ) {
+    const teacher = await this.teachersService.findByUserId(userId);
+    const withdrawal = await this.earningsService.applyWithdrawal(teacher.id, dto);
+    return ApiResponse.success({
+      id: withdrawal.id,
+      amount: withdrawal.amount / 100,
+      accountInfo: withdrawal.accountInfo,
+      status: withdrawal.status,
+      createdAt: withdrawal.createdAt,
+    }, '提现申请已提交');
+  }
+
   /**
    * 获取教师的提现记录列表
    * GET /api/v1/earnings/withdrawals
    *
-   * 功能描述：返回教师的提现申请记录（当前返回空列表，提现功能在 v5.1 实现）
+   * 功能描述：返回教师的提现申请记录列表（分页）
    *          前端通过 getWithdrawals() 调用此接口
    */
   @Get('withdrawals')
@@ -110,13 +146,96 @@ export class EarningsController {
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
   ) {
-    // 提现功能在后续版本实现，当前返回空列表
-    return ApiResponse.successWithPagination([], {
-      total: 0,
-      page: page || 1,
-      pageSize: pageSize || 20,
-      totalPages: 0,
-    });
+    const teacher = await this.teachersService.findByUserId(userId);
+    const result = await this.earningsService.getTeacherWithdrawals(
+      teacher.id,
+      page || 1,
+      pageSize || 20,
+    );
+    // 将分转换为元
+    const items = result.items.map((item: any) => ({
+      ...item,
+      amount: item.amount / 100,
+    }));
+    return ApiResponse.successWithPagination(items, result.meta);
+  }
+
+  /**
+   * 管理端获取所有提现记录
+   * GET /api/v1/earnings/admin/withdrawals
+   *
+   * 功能描述：管理员查看所有教师的提现申请，支持按状态筛选
+   *
+   * @param page 页码
+   * @param pageSize 每页条数
+   * @param status 状态筛选（pending/approved/rejected）
+   */
+  @Get('admin/withdrawals')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
+  async getAllWithdrawals(
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
+    @Query('status') status?: string,
+  ) {
+    const result = await this.earningsService.getAllWithdrawals(
+      page || 1,
+      pageSize || 20,
+      status,
+    );
+    const items = result.items.map((item: any) => ({
+      ...item,
+      amount: item.amount / 100,
+      teacher: item.teacher ? { id: item.teacher.id, realName: item.teacher.realName } : null,
+    }));
+    return ApiResponse.successWithPagination(items, result.meta);
+  }
+
+  /**
+   * 管理端审核提现
+   * POST /api/v1/earnings/admin/withdrawals/:id/review
+   *
+   * 功能描述：管理员审核提现申请，通过/驳回
+   *
+   * @param id 提现申请ID
+   * @param userId 审核人用户ID
+   * @param dto 审核参数（action: approved/rejected, remark: 驳回原因）
+   */
+  @Post('admin/withdrawals/:id/review')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
+  async reviewWithdrawal(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('sub') userId: number,
+    @Body() dto: ReviewWithdrawalDto,
+  ) {
+    const withdrawal = await this.earningsService.reviewWithdrawal(
+      id,
+      userId,
+      dto.action,
+      dto.remark,
+    );
+    return ApiResponse.success({
+      id: withdrawal.id,
+      status: withdrawal.status,
+      amount: withdrawal.amount / 100,
+      remark: withdrawal.remark,
+      processedAt: withdrawal.processedAt,
+    }, dto.action === 'approved' ? '提现审核通过' : '提现已驳回');
+  }
+
+  /**
+   * 获取待审核提现数量
+   * GET /api/v1/earnings/admin/pending-count
+   *
+   * 功能描述：用于管理端控制台显示待处理事项数量
+   */
+  @Get('admin/pending-count')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
+  async getPendingWithdrawalCount() {
+    const count = await this.earningsService.countPendingWithdrawals();
+    return ApiResponse.success({ count });
   }
 
   // ================================================================

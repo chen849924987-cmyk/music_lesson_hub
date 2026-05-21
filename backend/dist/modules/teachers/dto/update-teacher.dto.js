@@ -18,6 +18,8 @@ class UpdateTeacherDto {
     avatar;
     contactInfo;
     paymentAccount;
+    bankAccount;
+    bankBranch;
     notificationEnabled;
 }
 exports.UpdateTeacherDto = UpdateTeacherDto;
@@ -51,10 +53,22 @@ __decorate([
 ], UpdateTeacherDto.prototype, "contactInfo", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)({ message: '收款账号必须是字符串' }),
-    (0, class_validator_1.MaxLength)(200, { message: '收款账号最多200个字符' }),
+    (0, class_validator_1.IsString)({ message: '支付宝账号必须是字符串' }),
+    (0, class_validator_1.MaxLength)(200, { message: '支付宝账号最多200个字符' }),
     __metadata("design:type", String)
 ], UpdateTeacherDto.prototype, "paymentAccount", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)({ message: '银行账号必须是字符串' }),
+    (0, class_validator_1.MaxLength)(200, { message: '银行账号最多200个字符' }),
+    __metadata("design:type", String)
+], UpdateTeacherDto.prototype, "bankAccount", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)({ message: '所属支行必须是字符串' }),
+    (0, class_validator_1.MaxLength)(200, { message: '所属支行最多200个字符' }),
+    __metadata("design:type", String)
+], UpdateTeacherDto.prototype, "bankBranch", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsBoolean)({ message: '通知偏好必须是布尔值' }),

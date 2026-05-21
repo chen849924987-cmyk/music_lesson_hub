@@ -268,13 +268,13 @@ async function seedCourses() {
 
   // 3. 上传测试文件到 MinIO
   console.log('\n📤 上传测试文件到 MinIO...');
-  const imagePath = path.join(TEST_FILES_DIR, 'default-course.jpeg');
+  const imagePath = path.join(TEST_FILES_DIR, 'b0b004ceaeea73cdc8ce5a71c8acc09f.png');
   const videoPath = path.join(TEST_FILES_DIR, 'default-video.mp4');
 
-  const coverObjectName = 'seed/default-cover.jpeg';
+  const coverObjectName = 'seed/default-cover.png';
   const videoObjectName = 'seed/default-video.mp4';
 
-  await uploadIfNotExists(minioClient, MINIO_CONFIG.bucket, imagePath, coverObjectName, 'image/jpeg');
+  await uploadIfNotExists(minioClient, MINIO_CONFIG.bucket, imagePath, coverObjectName, 'image/png');
   await uploadIfNotExists(minioClient, MINIO_CONFIG.bucket, videoPath, videoObjectName, 'video/mp4');
 
   // 4. 连接 MySQL
@@ -339,11 +339,13 @@ async function seedCourses() {
     const videoId = videoRecordResult[0].insertId;
 
     // 7.2 插入课程记录 - 已上架且已审核
+    // 注意：rating 和 reviewCount 从 0 开始，由实际的评价数据驱动
+    // 当有已购用户发表评价时，后端 EvaluationsService.syncCourseRating() 会自动计算更新
     const courseInsertResult = await conn.execute(
       `INSERT INTO courses (title, cover, description, categoryId, teacherId, courseType, price, originalPrice, 
         status, previewDuration, reviewComment, reviewerId, reviewedAt, tags, studentCount, rating, reviewCount, 
         isRecommended, sortOrder, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', 120, '种子数据自动审核通过', 1, NOW(), ?, ?, 4.5, 0, ?, ?, NOW(), NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', 120, '种子数据自动审核通过', 1, NOW(), ?, ?, 0, 0, ?, ?, NOW(), NOW())`,
       [
         courseData.title,
         coverObjectName,

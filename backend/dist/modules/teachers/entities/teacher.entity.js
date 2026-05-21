@@ -22,6 +22,8 @@ let Teacher = class Teacher {
     avatar;
     contactInfo;
     paymentAccount;
+    bankAccount;
+    bankBranch;
     notificationEnabled;
     totalEarnings;
     withdrawableBalance;
@@ -71,6 +73,14 @@ __decorate([
     (0, typeorm_1.Column)({ length: 200, default: '' }),
     __metadata("design:type", String)
 ], Teacher.prototype, "paymentAccount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ length: 200, default: '' }),
+    __metadata("design:type", String)
+], Teacher.prototype, "bankAccount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ length: 200, default: '' }),
+    __metadata("design:type", String)
+], Teacher.prototype, "bankBranch", void 0);
 __decorate([
     (0, typeorm_1.Column)({ default: true }),
     __metadata("design:type", Boolean)

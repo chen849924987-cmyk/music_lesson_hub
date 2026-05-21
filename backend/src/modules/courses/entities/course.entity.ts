@@ -7,6 +7,7 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { Category } from './category.entity';
 import { Chapter } from './chapter.entity';
@@ -52,6 +53,11 @@ export class Course {
   @Column({ type: 'int', default: 0 })
   originalPrice: number;
 
+  /**
+   * 课程状态
+   * 功能描述：索引该字段以加速按状态筛选的查询（如 findPublished 按 approved 筛选）
+   */
+  @Index()
   @Column({ type: 'enum', enum: CourseStatus, default: CourseStatus.DRAFT })
   status: CourseStatus;
 

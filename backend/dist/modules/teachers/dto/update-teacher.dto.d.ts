@@ -5,5 +5,7 @@ export declare class UpdateTeacherDto {
     avatar?: string;
     contactInfo?: string;
     paymentAccount?: string;
+    bankAccount?: string;
+    bankBranch?: string;
     notificationEnabled?: boolean;
 }

@@ -3,18 +3,29 @@
  *
  * 功能描述：提供教师视角的侧边栏 + 顶部栏 + 主内容区布局结构。
  *           侧边栏包含导航菜单和用户信息，顶部栏包含主题切换、欢迎语和退出按钮。
+ *           支持移动端响应式：侧边栏变为抽屉式覆盖层，顶部栏显示汉堡菜单按钮。
  *
  * 设计参考：Vuestic UI 双主题设计体系，使用 --va-* CSS 变量实现主题切换
  -->
 
 <template>
   <div class="teacher-layout">
+    <!-- ========== 移动端侧边栏遮罩层 ========== -->
+    <div
+      v-if="sidebarOpen && isMobile"
+      class="sidebar-overlay"
+      @click="sidebarOpen = false"
+    ></div>
+
     <!-- ========== 侧边栏 ========== -->
-    <aside class="sidebar">
-      <!-- 品牌标识区 -->
+    <aside class="sidebar" :class="{ 'sidebar--open': sidebarOpen }">
+      <!-- 品牌标识区 + 关闭按钮（移动端） -->
       <div class="sidebar-header">
         <span class="sidebar-logo">📖</span>
         <span class="va-title">教师端</span>
+        <button class="sidebar-close show-mobile" @click="sidebarOpen = false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
 
       <!-- 导航菜单 -->
@@ -25,6 +36,7 @@
           :to="item.path"
           class="nav-item"
           :class="{ 'nav-item--active': route.path.startsWith(item.path) }"
+          @click="sidebarOpen = false"
         >
           <span class="nav-item__icon" v-html="item.icon"></span>
           <span class="nav-item__label">{{ item.label }}</span>
@@ -48,11 +60,15 @@
       <!-- 顶部栏 -->
       <header class="topbar">
         <div class="topbar-left">
+          <!-- 移动端汉堡菜单按钮 -->
+          <button class="hamburger-btn show-mobile" @click="sidebarOpen = true" aria-label="打开菜单">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
           <span class="topbar-title">{{ currentPageTitle }}</span>
         </div>
         <div class="topbar-right">
-          <el-button type="primary" size="small" @click="goHome">回到主页</el-button>
-          <span class="topbar-greeting">您好，{{ authStore.userInfo?.nickname }}</span>
+          <el-button type="primary" size="small" class="hide-mobile" @click="goHome">回到主页</el-button>
+          <span class="topbar-greeting hide-mobile">您好，{{ authStore.userInfo?.nickname }}</span>
           <!-- 主题切换按钮 -->
           <ThemeToggle />
           <button class="btn btn-text logout-btn" @click="handleLogout">
@@ -76,8 +92,10 @@
  * TeacherLayout 布局组件
  *
  * @description 教师端的布局容器，包含侧边栏导航和顶部操作栏
+ * @param none
+ * @return 渲染教师端页面框架
  */
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import ThemeToggle from '../components/ThemeToggle.vue';
@@ -86,6 +104,30 @@ import BackToTop from '../components/BackToTop.vue';
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+
+/** 移动端侧边栏展开状态 */
+const sidebarOpen = ref(false);
+
+/** 是否为移动端屏幕（< 768px） */
+const isMobile = ref(false);
+
+/** 检查并更新屏幕尺寸判断 */
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768;
+  // 屏幕从小变大时关闭侧边栏
+  if (!isMobile.value && sidebarOpen.value) {
+    sidebarOpen.value = false;
+  }
+};
+
+onMounted(() => {
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile);
+});
 
 /**
  * 当前页面标题，根据路由 meta.title 动态显示
@@ -155,6 +197,30 @@ const handleLogout = () => {
   background-color: var(--va-background-secondary);
 }
 
+/* ---- 移动端遮罩层 ---- */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+}
+
+@media (max-width: 767.98px) {
+  .sidebar-overlay {
+    display: block;
+    animation: fadeIn 0.2s ease;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ---- 侧边栏 ---- */
 .sidebar {
   width: 240px;
@@ -163,6 +229,24 @@ const handleLogout = () => {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+}
+
+@media (max-width: 767.98px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 100vh;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.5, 1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+  }
 }
 
 .sidebar-header {
@@ -185,6 +269,26 @@ const handleLogout = () => {
   color: var(--va-on-background-primary);
 }
 
+/* 移动端侧边栏关闭按钮 */
+.sidebar-close {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--va-on-background-secondary);
+  background: var(--va-background-secondary);
+  cursor: pointer;
+  transition: var(--va-transition);
+}
+
+.sidebar-close:hover {
+  color: var(--va-on-background-primary);
+  background: var(--va-background-element);
+}
+
 /* ---- 导航菜单 ---- */
 .sidebar-nav {
   flex: 1;
@@ -192,6 +296,7 @@ const handleLogout = () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
 }
 
 .nav-item {
@@ -306,11 +411,37 @@ const handleLogout = () => {
   border-bottom: var(--va-block-border);
 }
 
+@media (max-width: 767.98px) {
+  .topbar {
+    height: var(--va-topbar-height-mobile, 48px);
+    padding: 0 0.75rem;
+  }
+}
+
 .topbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+
+/* 移动端汉堡菜单按钮 */
+.hamburger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--va-square-border-radius);
+  color: var(--va-on-background-primary);
+  background: transparent;
+  cursor: pointer;
+  transition: var(--va-transition);
+}
+
+.hamburger-btn:hover {
+  background: var(--va-background-secondary);
+}
+
 .topbar-home-link {
   display: flex;
   align-items: center;
@@ -327,10 +458,22 @@ const handleLogout = () => {
   color: var(--va-on-background-primary);
 }
 
+@media (max-width: 767.98px) {
+  .topbar-title {
+    font-size: 0.875rem;
+  }
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
   gap: var(--va-gap-large);
+}
+
+@media (max-width: 767.98px) {
+  .topbar-right {
+    gap: var(--va-gap-medium);
+  }
 }
 
 .topbar-greeting {
@@ -358,5 +501,11 @@ const handleLogout = () => {
   padding: 1.5rem;
   overflow-y: auto;
   background-color: var(--va-background-secondary);
+}
+
+@media (max-width: 767.98px) {
+  .main-content {
+    padding: var(--va-content-padding-mobile, 0.75rem);
+  }
 }
 </style>

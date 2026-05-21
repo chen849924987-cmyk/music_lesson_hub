@@ -18,13 +18,16 @@ const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const earning_entity_1 = require("./entities/earning.entity");
+const withdrawal_entity_1 = require("./entities/withdrawal.entity");
 const order_entity_1 = require("../orders/entities/order.entity");
 const order_item_entity_1 = require("../orders/entities/order-item.entity");
 const course_entity_1 = require("../courses/entities/course.entity");
 const teacher_entity_1 = require("../teachers/entities/teacher.entity");
 const constants_1 = require("../../common/constants");
+const response_dto_1 = require("../../common/dto/response.dto");
 let EarningsService = EarningsService_1 = class EarningsService {
     earningRepository;
+    withdrawalRepository;
     orderRepository;
     orderItemRepository;
     courseRepository;
@@ -32,8 +35,9 @@ let EarningsService = EarningsService_1 = class EarningsService {
     dataSource;
     logger = new common_1.Logger(EarningsService_1.name);
     PLATFORM_SHARE_RATE = 0.3;
-    constructor(earningRepository, orderRepository, orderItemRepository, courseRepository, teacherRepository, dataSource) {
+    constructor(earningRepository, withdrawalRepository, orderRepository, orderItemRepository, courseRepository, teacherRepository, dataSource) {
         this.earningRepository = earningRepository;
+        this.withdrawalRepository = withdrawalRepository;
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.courseRepository = courseRepository;
@@ -63,14 +67,10 @@ let EarningsService = EarningsService_1 = class EarningsService {
         const earningsByTeacher = new Map();
         for (const item of items) {
             const course = courseMap.get(item.courseId);
-            if (!course) {
-                this.logger.warn(`课程 ${item.courseId} 不存在，跳过收益项`);
+            if (!course)
                 continue;
-            }
-            if (!course.teacherId) {
-                this.logger.warn(`课程 ${item.courseId} 无归属教师，跳过收益项`);
+            if (!course.teacherId)
                 continue;
-            }
             const teacherId = course.teacherId;
             if (!earningsByTeacher.has(teacherId)) {
                 earningsByTeacher.set(teacherId, { teacherId, totalAmount: 0, details: [] });
@@ -84,10 +84,8 @@ let EarningsService = EarningsService_1 = class EarningsService {
                 orderItemId: item.id,
             });
         }
-        if (earningsByTeacher.size === 0) {
-            this.logger.warn(`订单 ${orderId} 无有效收益项，跳过`);
+        if (earningsByTeacher.size === 0)
             return;
-        }
         await this.dataSource.transaction(async (manager) => {
             for (const [, entry] of earningsByTeacher) {
                 const platformShare = Math.round(entry.totalAmount * this.PLATFORM_SHARE_RATE);
@@ -125,15 +123,11 @@ let EarningsService = EarningsService_1 = class EarningsService {
             where: { id: orderId },
             relations: ['items'],
         });
-        if (!order || order.status !== constants_1.OrderStatus.REFUNDED) {
-            this.logger.warn(`订单 ${orderId} 未退款或不存在，跳过收益扣减`);
+        if (!order || order.status !== constants_1.OrderStatus.REFUNDED)
             return;
-        }
         const earnings = await this.earningRepository.find({ where: { orderId } });
-        if (earnings.length === 0) {
-            this.logger.warn(`订单 ${orderId} 无原有收益记录，跳过扣减`);
+        if (earnings.length === 0)
             return;
-        }
         await this.dataSource.transaction(async (manager) => {
             for (const earning of earnings) {
                 const deductRecord = this.earningRepository.create({
@@ -160,7 +154,158 @@ let EarningsService = EarningsService_1 = class EarningsService {
                     .execute();
             }
         });
-        this.logger.log(`订单 ${order.orderNo} 收益扣减完成，共 ${earnings.length} 条记录`);
+    }
+    async applyWithdrawal(teacherId, dto) {
+        const teacher = await this.teacherRepository.findOne({ where: { id: teacherId } });
+        if (!teacher) {
+            throw new common_1.NotFoundException('教师信息不存在');
+        }
+        const amountInCents = Math.round(dto.amount * 100);
+        if (Number(teacher.withdrawableBalance) < amountInCents) {
+            throw response_dto_1.BusinessException.badRequest('可提现余额不足');
+        }
+        if (amountInCents < 100) {
+            throw response_dto_1.BusinessException.badRequest('最低提现金额为 1 元');
+        }
+        const accountInfo = teacher.paymentAccount || '';
+        if (!accountInfo) {
+            throw response_dto_1.BusinessException.badRequest('请先在个人中心设置收款账号');
+        }
+        const withdrawal = this.withdrawalRepository.create({
+            teacherId,
+            amount: amountInCents,
+            accountInfo,
+            status: 'pending',
+        });
+        const saved = await this.withdrawalRepository.save(withdrawal);
+        await this.teacherRepository
+            .createQueryBuilder()
+            .update(teacher_entity_1.Teacher)
+            .set({
+            withdrawableBalance: () => `withdrawableBalance - ${amountInCents}`,
+        })
+            .where('id = :teacherId', { teacherId })
+            .execute();
+        const earningRecord = this.earningRepository.create({
+            teacherId,
+            orderId: null,
+            courseId: null,
+            courseTitle: '提现申请',
+            amount: -amountInCents,
+            platformShare: 0,
+            actualAmount: -amountInCents,
+            type: 'withdrawal',
+            status: constants_1.EarningStatus.SETTLED,
+            remark: `提现申请 #${saved.id}：¥${dto.amount} 至 ${accountInfo}`,
+        });
+        await this.earningRepository.save(earningRecord);
+        this.logger.log(`教师 ${teacherId} 提交提现申请 #${saved.id}：${dto.amount} 元`);
+        return saved;
+    }
+    async reviewWithdrawal(withdrawalId, reviewerId, action, remark) {
+        const withdrawal = await this.withdrawalRepository.findOne({
+            where: { id: withdrawalId },
+        });
+        if (!withdrawal) {
+            throw new common_1.NotFoundException('提现申请不存在');
+        }
+        if (withdrawal.status !== 'pending') {
+            throw response_dto_1.BusinessException.badRequest('该提现申请已处理，不能重复审核');
+        }
+        if (action === 'rejected' && !remark) {
+            throw response_dto_1.BusinessException.badRequest('驳回时必须填写原因');
+        }
+        const finalRemark = remark || '审核通过，已打款';
+        await this.dataSource.transaction(async (manager) => {
+            if (action === 'approved') {
+                withdrawal.status = 'approved';
+                withdrawal.reviewerId = reviewerId;
+                withdrawal.remark = finalRemark;
+                withdrawal.processedAt = new Date();
+                await manager
+                    .createQueryBuilder()
+                    .update(teacher_entity_1.Teacher)
+                    .set({
+                    withdrawnAmount: () => `withdrawnAmount + ${withdrawal.amount}`,
+                })
+                    .where('id = :teacherId', { teacherId: withdrawal.teacherId })
+                    .execute();
+                const earningRecord = this.earningRepository.create({
+                    teacherId: withdrawal.teacherId,
+                    orderId: null,
+                    courseId: null,
+                    courseTitle: '提现到账',
+                    amount: -withdrawal.amount,
+                    platformShare: 0,
+                    actualAmount: -withdrawal.amount,
+                    type: 'withdrawal',
+                    status: constants_1.EarningStatus.SETTLED,
+                    remark: `提现申请 #${withdrawal.id} 审核通过，已打款`,
+                });
+                await manager.save(earning_entity_1.Earning, earningRecord);
+            }
+            else {
+                withdrawal.status = 'rejected';
+                withdrawal.reviewerId = reviewerId;
+                withdrawal.remark = remark;
+                withdrawal.processedAt = new Date();
+                await manager
+                    .createQueryBuilder()
+                    .update(teacher_entity_1.Teacher)
+                    .set({
+                    withdrawableBalance: () => `withdrawableBalance + ${withdrawal.amount}`,
+                })
+                    .where('id = :teacherId', { teacherId: withdrawal.teacherId })
+                    .execute();
+            }
+            await manager.save(withdrawal_entity_1.Withdrawal, withdrawal);
+        });
+        this.logger.log(`提现申请 #${withdrawalId} ${action === 'approved' ? '审核通过' : '已驳回'}`);
+        return withdrawal;
+    }
+    async getTeacherWithdrawals(teacherId, page = 1, pageSize = 20) {
+        const [items, total] = await this.withdrawalRepository.findAndCount({
+            where: { teacherId },
+            order: { createdAt: 'DESC' },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+        });
+        return {
+            items,
+            meta: {
+                total,
+                page,
+                pageSize,
+                totalPages: Math.ceil(total / pageSize),
+            },
+        };
+    }
+    async getAllWithdrawals(page = 1, pageSize = 20, status) {
+        const where = {};
+        if (status) {
+            where.status = status;
+        }
+        const [items, total] = await this.withdrawalRepository.findAndCount({
+            where,
+            relations: ['teacher'],
+            order: { createdAt: 'DESC' },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+        });
+        return {
+            items,
+            meta: {
+                total,
+                page,
+                pageSize,
+                totalPages: Math.ceil(total / pageSize),
+            },
+        };
+    }
+    async countPendingWithdrawals() {
+        return this.withdrawalRepository.count({
+            where: { status: 'pending' },
+        });
     }
     async getTeacherEarningStats(teacherId) {
         const teacher = await this.teacherRepository.findOne({ where: { id: teacherId } });
@@ -192,12 +337,7 @@ let EarningsService = EarningsService_1 = class EarningsService {
             .getManyAndCount();
         return {
             items,
-            meta: {
-                total,
-                page,
-                pageSize,
-                totalPages: Math.ceil(total / pageSize),
-            },
+            meta: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
         };
     }
     async getPlatformEarningStats() {
@@ -207,9 +347,7 @@ let EarningsService = EarningsService_1 = class EarningsService {
             .where('order.status IN (:...statuses)', { statuses: [constants_1.OrderStatus.PAID, constants_1.OrderStatus.REFUNDED] })
             .getRawOne();
         const totalRevenue = Number(revenueResult?.total || 0);
-        const orderCount = await this.orderRepository.count({
-            where: { status: constants_1.OrderStatus.PAID },
-        });
+        const orderCount = await this.orderRepository.count({ where: { status: constants_1.OrderStatus.PAID } });
         const platformResult = await this.earningRepository
             .createQueryBuilder('earning')
             .select('COALESCE(SUM(earning.platformShare), 0)', 'total')
@@ -227,13 +365,7 @@ let EarningsService = EarningsService_1 = class EarningsService {
             .select('COALESCE(SUM(teacher.withdrawnAmount), 0)', 'total')
             .getRawOne();
         const totalWithdrawn = Number(withdrawalResult?.total || 0);
-        return {
-            totalRevenue,
-            platformIncome,
-            teacherEarnings,
-            totalWithdrawn,
-            orderCount,
-        };
+        return { totalRevenue, platformIncome, teacherEarnings, totalWithdrawn, orderCount };
     }
     async getPlatformEarningTrend(days = 30) {
         const startDate = new Date();
@@ -283,10 +415,7 @@ let EarningsService = EarningsService_1 = class EarningsService {
     async getTopEarningTeachers(limit = 10) {
         const results = await this.earningRepository
             .createQueryBuilder('earning')
-            .select([
-            'earning.teacherId as teacherId',
-            'COALESCE(SUM(earning.amount), 0) as totalAmount',
-        ])
+            .select(['earning.teacherId as teacherId', 'COALESCE(SUM(earning.amount), 0) as totalAmount'])
             .where('earning.type = :type', { type: 'course_sale' })
             .groupBy('earning.teacherId')
             .orderBy('totalAmount', 'DESC')
@@ -311,11 +440,13 @@ exports.EarningsService = EarningsService;
 exports.EarningsService = EarningsService = EarningsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(earning_entity_1.Earning)),
-    __param(1, (0, typeorm_1.InjectRepository)(order_entity_1.Order)),
-    __param(2, (0, typeorm_1.InjectRepository)(order_item_entity_1.OrderItem)),
-    __param(3, (0, typeorm_1.InjectRepository)(course_entity_1.Course)),
-    __param(4, (0, typeorm_1.InjectRepository)(teacher_entity_1.Teacher)),
+    __param(1, (0, typeorm_1.InjectRepository)(withdrawal_entity_1.Withdrawal)),
+    __param(2, (0, typeorm_1.InjectRepository)(order_entity_1.Order)),
+    __param(3, (0, typeorm_1.InjectRepository)(order_item_entity_1.OrderItem)),
+    __param(4, (0, typeorm_1.InjectRepository)(course_entity_1.Course)),
+    __param(5, (0, typeorm_1.InjectRepository)(teacher_entity_1.Teacher)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,

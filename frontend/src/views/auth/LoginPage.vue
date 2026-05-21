@@ -510,4 +510,98 @@ const handleLogin = async () => {
   opacity: 0.25;
   animation: indicatorPulse 2s ease-in-out infinite;
 }
+
+/* ============================================================
+ * 移动端响应式适配
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  .theme-toggle-wrapper {
+    top: 0.75rem;
+    right: 0.75rem;
+    gap: 6px;
+  }
+
+  .theme-toggle-wrapper .el-button {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+  }
+
+  /* 登录容器缩小 */
+  .login-container {
+    width: 92%;
+    max-width: 400px;
+    padding: 32px 20px 28px;
+    margin: 0 auto;
+    border-radius: 12px;
+  }
+
+  .login-title {
+    font-size: 1.375rem;
+  }
+
+  .login-subtitle {
+    font-size: 0.8125rem;
+  }
+
+  .login-header {
+    margin-bottom: 24px;
+  }
+
+  .logo-icon svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .logo-ring {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* 表单 */
+  :deep(.login-form .el-form-item) {
+    margin-bottom: 18px;
+  }
+
+  :deep(.daw-input .el-input__wrapper) {
+    padding: 0 8px;
+  }
+
+  .login-button {
+    height: 42px;
+    font-size: 0.875rem;
+    letter-spacing: 2px;
+  }
+
+  .login-footer {
+    font-size: 0.8125rem;
+  }
+
+  .forgot-links {
+    margin-top: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .forgot-link {
+    font-size: 0.75rem;
+  }
+
+  .beat-line {
+    margin-top: 16px;
+    padding-top: 14px;
+  }
+
+  /* 隐藏部分装饰以减少移动端性能开销 */
+  .floating-notes {
+    opacity: 0.3;
+  }
+
+  .bg-waveform {
+    height: 120px;
+    opacity: 0.08;
+  }
+
+  .vu-decor {
+    margin-bottom: 16px;
+  }
+}
 </style>

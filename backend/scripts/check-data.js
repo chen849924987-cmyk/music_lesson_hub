@@ -7,12 +7,12 @@
 const mysql = require('mysql2/promise');
 
 async function checkData() {
-    const conn = await mysql.createConnection({
-      host: 'localhost',
-      user: 'root',
-      password: 'your-db-password-here',
-      database: 'music_edu'
-    });
+  const conn = await mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: 'your-db-password-here',
+    database: 'music_edu'
+  });
 
   try {
     console.log('========== 数据库数据检查 ==========');

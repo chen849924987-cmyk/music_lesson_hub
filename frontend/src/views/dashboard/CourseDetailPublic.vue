@@ -201,6 +201,15 @@
               </ul>
             </div>
 
+            <!-- ========== 课程评价区域 ========== -->
+            <div class="evaluation-section">
+              <CourseEvaluation
+                :course-id="course.id"
+                :can-evaluate="canEvaluate"
+                :is-teacher="isCourseTeacher"
+              />
+            </div>
+
             <!-- 无章节/课时内容 -->
             <div v-if="displayChapters.length === 0" class="empty-state" style="padding: 3rem 0;">
               <span class="empty-state__icon">
@@ -290,6 +299,7 @@ import ThemeToggle from '../../components/ThemeToggle.vue';
 import { MusicalNoteIcon } from '@heroicons/vue/24/outline';
 import { addToCart } from '../../api/cart';
 import { createOrder } from '../../api/order';
+import CourseEvaluation from '../../components/CourseEvaluation.vue';
 import {
   getCourseDetail,
   getChapters,
@@ -381,6 +391,17 @@ const dashboardLabel = computed(() => {
   if (authStore.isAdmin || authStore.isSuperAdmin) return '管理后台';
   if (authStore.isTeacher) return '教学中心';
   return '学习空间';
+});
+
+/** 当前用户是否可以发表评价（已登录制作人 + 已购买课程） */
+const canEvaluate = computed(() => {
+  return authStore.isLoggedIn && authStore.isProducer;
+});
+
+/** 当前用户是否是课程教师 */
+const isCourseTeacher = computed(() => {
+  if (!authStore.isLoggedIn || !course.value || !authStore.userInfo) return false;
+  return authStore.userInfo.id === course.value.teacherId;
 });
 
 /** 退出登录 */
@@ -1136,6 +1157,160 @@ onMounted(() => {
   .hero-cover,
   .hero-placeholder {
     min-height: 240px;
+  }
+}
+
+/* ============================================================
+ * 移动端响应式适配（< 768px）
+ * ============================================================ */
+@media (max-width: 767.98px) {
+  /* ---- 顶栏 ---- */
+  .header-inner {
+    padding: 0 0.75rem;
+    height: 56px;
+  }
+
+  .brand {
+    font-size: 0.9375rem;
+  }
+
+  .header-right {
+    gap: 4px;
+  }
+
+  .header-nav {
+    display: none;
+  }
+
+  .nav-link {
+    display: none;
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+  }
+
+  .nav-link--dashboard,
+  .nav-link:last-child {
+    display: inline-flex;
+  }
+
+  .nav-btn {
+    display: inline-flex !important;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+  }
+
+  /* ---- Hero 区 ---- */
+  .detail-hero {
+    /* 移除 sticky，让内容自然滚动 */
+  }
+
+  .hero-bg {
+    min-height: 220px;
+  }
+
+  .hero-cover,
+  .hero-placeholder {
+    min-height: 220px;
+  }
+
+  .hero-content {
+    padding: 1rem 0.75rem;
+    position: relative;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0.85));
+  }
+
+  .hero-title {
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .hero-desc {
+    font-size: 0.8125rem;
+    -webkit-line-clamp: 3;
+  }
+
+  .hero-stats {
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .stat-item {
+    font-size: 0.75rem;
+  }
+
+  .hero-actions {
+    gap: 0.5rem;
+  }
+
+  .hero-price {
+    font-size: 1.375rem;
+    width: 100%;
+  }
+
+  .hero-actions .btn {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+  }
+
+  .btn-lg {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+  }
+
+  /* ---- 内容主体 ---- */
+  .detail-main {
+    padding: 0 0;
+  }
+
+  .detail-body {
+    padding: 1rem 0.75rem;
+    gap: 1rem;
+  }
+
+  .detail-tags {
+    margin-bottom: 1rem;
+  }
+
+  .detail-tag {
+    font-size: 0.6875rem;
+  }
+
+  .chapter-title {
+    padding: 0.75rem 1rem;
+    font-size: 0.9375rem;
+  }
+
+  .lesson-item {
+    padding: 0.625rem 1rem;
+  }
+
+  .lesson-title {
+    font-size: 0.8125rem;
+  }
+
+  .lesson-single-price {
+    font-size: 0.8125rem;
+  }
+
+  /* ---- 侧边栏 ---- */
+  .sidebar-card {
+    padding: 1rem;
+  }
+
+  .sidebar-title {
+    font-size: 0.8125rem;
+  }
+
+  /* ---- 页脚 ---- */
+  .detail-footer {
+    padding: 1.25rem 0.75rem;
+  }
+
+  /* ---- 试看弹窗 ---- */
+  .trailer-modal {
+    width: 95%;
   }
 }
 </style>

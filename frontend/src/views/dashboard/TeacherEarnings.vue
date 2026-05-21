@@ -94,13 +94,12 @@
           </div>
           <div class="form-group">
             <label class="form-label">收款账号</label>
-            <input
-              v-model="withdrawAccount"
-              type="text"
-              class="form-input"
-              placeholder="请输入支付宝账号"
-            />
-            <span class="form-hint">请确保账号信息正确，提现后不可撤销</span>
+            <div class="form-readonly">
+              <span class="readonly-text">{{ paymentAccount || '未设置' }}</span>
+            </div>
+            <span class="form-hint">
+              收款账号来自<a href="/teacher/profile" class="form-link">个人中心设置</a>，修改请前往个人中心
+            </span>
           </div>
         </div>
         <button
@@ -212,6 +211,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { getEarningsStats, getEarningsDetail, applyWithdrawal } from '../../api/course';
+import { getProfile } from '../../api/user';
 
 /** 加载状态 */
 const loading = ref(true);
@@ -226,18 +226,21 @@ const earningsStats = ref({
   balance: 0,
   pendingSettlement: 0,
   totalWithdrawn: 0,
+  paymentAccount: '',
+  bankAccount: '',
+  bankBranch: '',
 });
 
 /** 提现金额 */
 const withdrawAmount = ref<number | null>(null);
 
-/** 收款账号 */
-const withdrawAccount = ref('');
+/** 收款账号（只读，从教师个人设置中获取） */
+const paymentAccount = ref('');
 
-/** 是否可以提现 */
+/** 是否可以提现 - 金额必填，后端会校验收款账号 */
 const canWithdraw = computed(() => {
   const amount = withdrawAmount.value;
-  return amount !== null && amount > 0 && amount <= earningsStats.value.balance && withdrawAccount.value.trim().length > 0;
+  return amount !== null && amount > 0 && amount <= earningsStats.value.balance;
 });
 
 /** 最后提现金额（用于成功提示） */
@@ -265,8 +268,31 @@ const detailTotalPages = ref(1);
 const fetchEarningsStats = async () => {
   loading.value = true;
   try {
-    const result = await getEarningsStats();
-    earningsStats.value = result;
+    // 并发请求收益统计和个人信息
+    const [statsResult, profileResult] = await Promise.all([
+      getEarningsStats(),
+      getProfile().catch(() => null),
+    ]);
+    // 后端 Controller 已做 /100 转换（分→元），直接使用返回数据
+    earningsStats.value = {
+      totalEarnings: statsResult.totalEarnings,
+      balance: statsResult.balance,
+      pendingSettlement: statsResult.pendingSettlement,
+      totalWithdrawn: statsResult.totalWithdrawn,
+      paymentAccount: statsResult.paymentAccount || '',
+      bankAccount: statsResult.bankAccount || '',
+      bankBranch: statsResult.bankBranch || '',
+    };
+
+    // 优先从 profile API 获取收款账号（更可靠）
+    // profile 返回的 teacher.paymentAccount 直接来自数据库
+    if (profileResult && (profileResult as any).teacher?.paymentAccount) {
+      paymentAccount.value = (profileResult as any).teacher.paymentAccount;
+    } else if (statsResult.paymentAccount) {
+      paymentAccount.value = statsResult.paymentAccount;
+    } else {
+      paymentAccount.value = '';
+    }
   } catch (error) {
     console.error('获取收益统计失败:', error);
   } finally {
@@ -307,15 +333,17 @@ const changeDetailPage = (page: number) => {
 
 /**
  * 申请提现
+ * 功能描述：教师只需输入提现金额，收款账号从个人设置自动读取
  */
 const handleWithdraw = async () => {
   if (!canWithdraw.value) return;
 
   withdrawing.value = true;
   try {
+    // 金额以"元"为单位发送，由后端 DTO 中做 * 100 转换为分存储
+    // 前端不做二次转换，避免重复乘以100
     await applyWithdrawal({
-      amount: Math.round(withdrawAmount.value! * 100), // 转换为分
-      accountInfo: withdrawAccount.value.trim(),
+      amount: Math.round(withdrawAmount.value!),
     });
 
     lastWithdrawAmount.value = withdrawAmount.value!;
@@ -323,7 +351,6 @@ const handleWithdraw = async () => {
 
     // 重置表单
     withdrawAmount.value = null;
-    withdrawAccount.value = '';
 
     // 刷新统计数据
     await fetchEarningsStats();

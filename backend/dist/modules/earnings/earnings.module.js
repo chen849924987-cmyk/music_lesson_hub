@@ -12,6 +12,7 @@ const typeorm_1 = require("@nestjs/typeorm");
 const earnings_controller_1 = require("./earnings.controller");
 const earnings_service_1 = require("./earnings.service");
 const earning_entity_1 = require("./entities/earning.entity");
+const withdrawal_entity_1 = require("./entities/withdrawal.entity");
 const order_entity_1 = require("../orders/entities/order.entity");
 const order_item_entity_1 = require("../orders/entities/order-item.entity");
 const course_entity_1 = require("../courses/entities/course.entity");
@@ -25,7 +26,7 @@ exports.EarningsModule = EarningsModule;
 exports.EarningsModule = EarningsModule = __decorate([
     (0, common_1.Module)({
         imports: [
-            typeorm_1.TypeOrmModule.forFeature([earning_entity_1.Earning, order_entity_1.Order, order_item_entity_1.OrderItem, course_entity_1.Course, teacher_entity_1.Teacher]),
+            typeorm_1.TypeOrmModule.forFeature([earning_entity_1.Earning, withdrawal_entity_1.Withdrawal, order_entity_1.Order, order_item_entity_1.OrderItem, course_entity_1.Course, teacher_entity_1.Teacher]),
             (0, common_1.forwardRef)(() => teachers_module_1.TeachersModule),
             (0, common_1.forwardRef)(() => orders_module_1.OrdersModule),
             (0, common_1.forwardRef)(() => courses_module_1.CoursesModule),

@@ -50,9 +50,17 @@ export class Teacher {
   @Column({ length: 200, default: '' })
   contactInfo: string;
 
-  /** 收款账号（支付宝账号） */
+  /** 收款账号（支付宝账号/手机号） */
   @Column({ length: 200, default: '' })
   paymentAccount: string;
+
+  /** 银行账号 */
+  @Column({ length: 200, default: '' })
+  bankAccount: string;
+
+  /** 所属支行 */
+  @Column({ length: 200, default: '' })
+  bankBranch: string;
 
   /** 通知偏好（是否接收课程审核通知等） */
   @Column({ default: true })

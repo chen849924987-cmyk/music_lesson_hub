@@ -33,11 +33,23 @@ export class UpdateTeacherDto {
   @MaxLength(200, { message: '联系方式最多200个字符' })
   contactInfo?: string;
 
-  /** 收款账号（支付宝账号） */
+  /** 支付宝账号（手机号） */
   @IsOptional()
-  @IsString({ message: '收款账号必须是字符串' })
-  @MaxLength(200, { message: '收款账号最多200个字符' })
+  @IsString({ message: '支付宝账号必须是字符串' })
+  @MaxLength(200, { message: '支付宝账号最多200个字符' })
   paymentAccount?: string;
+
+  /** 银行账号 */
+  @IsOptional()
+  @IsString({ message: '银行账号必须是字符串' })
+  @MaxLength(200, { message: '银行账号最多200个字符' })
+  bankAccount?: string;
+
+  /** 所属支行 */
+  @IsOptional()
+  @IsString({ message: '所属支行必须是字符串' })
+  @MaxLength(200, { message: '所属支行最多200个字符' })
+  bankBranch?: string;
 
   /** 通知偏好（开启/关闭通知） */
   @IsOptional()

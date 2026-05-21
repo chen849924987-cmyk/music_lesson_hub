@@ -22,6 +22,7 @@ const roles_decorator_1 = require("../../common/decorators/roles.decorator");
 const constants_1 = require("../../common/constants");
 const response_dto_1 = require("../../common/dto/response.dto");
 const teachers_service_1 = require("../teachers/teachers.service");
+const create_withdrawal_dto_1 = require("./dto/create-withdrawal.dto");
 let EarningsController = class EarningsController {
     earningsService;
     teachersService;
@@ -37,6 +38,9 @@ let EarningsController = class EarningsController {
             balance: stats.balance / 100,
             pendingSettlement: stats.pendingSettlement / 100,
             totalWithdrawn: stats.totalWithdrawn / 100,
+            paymentAccount: teacher.paymentAccount || '',
+            bankAccount: teacher.bankAccount || '',
+            bankBranch: teacher.bankBranch || '',
         });
     }
     async getEarningDetail(userId, page, pageSize, startDate, endDate) {
@@ -55,13 +59,48 @@ let EarningsController = class EarningsController {
         }));
         return response_dto_1.ApiResponse.successWithPagination(items, result.meta);
     }
+    async applyWithdrawal(userId, dto) {
+        const teacher = await this.teachersService.findByUserId(userId);
+        const withdrawal = await this.earningsService.applyWithdrawal(teacher.id, dto);
+        return response_dto_1.ApiResponse.success({
+            id: withdrawal.id,
+            amount: withdrawal.amount / 100,
+            accountInfo: withdrawal.accountInfo,
+            status: withdrawal.status,
+            createdAt: withdrawal.createdAt,
+        }, '提现申请已提交');
+    }
     async getWithdrawals(userId, page, pageSize) {
-        return response_dto_1.ApiResponse.successWithPagination([], {
-            total: 0,
-            page: page || 1,
-            pageSize: pageSize || 20,
-            totalPages: 0,
-        });
+        const teacher = await this.teachersService.findByUserId(userId);
+        const result = await this.earningsService.getTeacherWithdrawals(teacher.id, page || 1, pageSize || 20);
+        const items = result.items.map((item) => ({
+            ...item,
+            amount: item.amount / 100,
+        }));
+        return response_dto_1.ApiResponse.successWithPagination(items, result.meta);
+    }
+    async getAllWithdrawals(page, pageSize, status) {
+        const result = await this.earningsService.getAllWithdrawals(page || 1, pageSize || 20, status);
+        const items = result.items.map((item) => ({
+            ...item,
+            amount: item.amount / 100,
+            teacher: item.teacher ? { id: item.teacher.id, realName: item.teacher.realName } : null,
+        }));
+        return response_dto_1.ApiResponse.successWithPagination(items, result.meta);
+    }
+    async reviewWithdrawal(id, userId, dto) {
+        const withdrawal = await this.earningsService.reviewWithdrawal(id, userId, dto.action, dto.remark);
+        return response_dto_1.ApiResponse.success({
+            id: withdrawal.id,
+            status: withdrawal.status,
+            amount: withdrawal.amount / 100,
+            remark: withdrawal.remark,
+            processedAt: withdrawal.processedAt,
+        }, dto.action === 'approved' ? '提现审核通过' : '提现已驳回');
+    }
+    async getPendingWithdrawalCount() {
+        const count = await this.earningsService.countPendingWithdrawals();
+        return response_dto_1.ApiResponse.success({ count });
     }
     async getPlatformStats() {
         const stats = await this.earningsService.getPlatformEarningStats();
@@ -121,6 +160,16 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], EarningsController.prototype, "getEarningDetail", null);
 __decorate([
+    (0, common_1.Post)('withdrawals'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)(constants_1.Role.TEACHER),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('sub')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, create_withdrawal_dto_1.CreateWithdrawalDto]),
+    __metadata("design:returntype", Promise)
+], EarningsController.prototype, "applyWithdrawal", null);
+__decorate([
     (0, common_1.Get)('withdrawals'),
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
     (0, roles_decorator_1.Roles)(constants_1.Role.TEACHER),
@@ -131,6 +180,36 @@ __decorate([
     __metadata("design:paramtypes", [Number, Number, Number]),
     __metadata("design:returntype", Promise)
 ], EarningsController.prototype, "getWithdrawals", null);
+__decorate([
+    (0, common_1.Get)('admin/withdrawals'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)(constants_1.Role.SUPER_ADMIN),
+    __param(0, (0, common_1.Query)('page', new common_1.ParseIntPipe({ optional: true }))),
+    __param(1, (0, common_1.Query)('pageSize', new common_1.ParseIntPipe({ optional: true }))),
+    __param(2, (0, common_1.Query)('status')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, String]),
+    __metadata("design:returntype", Promise)
+], EarningsController.prototype, "getAllWithdrawals", null);
+__decorate([
+    (0, common_1.Post)('admin/withdrawals/:id/review'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)(constants_1.Role.SUPER_ADMIN),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('sub')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Number, create_withdrawal_dto_1.ReviewWithdrawalDto]),
+    __metadata("design:returntype", Promise)
+], EarningsController.prototype, "reviewWithdrawal", null);
+__decorate([
+    (0, common_1.Get)('admin/pending-count'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)(constants_1.Role.SUPER_ADMIN),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], EarningsController.prototype, "getPendingWithdrawalCount", null);
 __decorate([
     (0, common_1.Get)('admin/platform-stats'),
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt'), roles_guard_1.RolesGuard),

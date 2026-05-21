@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
+import redisConfig from './config/redis.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TeachersModule } from './modules/teachers/teachers.module';
@@ -20,6 +21,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { LearningModule } from './modules/learning/learning.module';
+import { RedisModule } from './common/redis/redis.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationPipe } from './common/pipes/validation.pipe';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -34,7 +36,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     ConfigModule.forRoot({
       isGlobal: true, // 全局可用，无需在每个模块中重复导入
       envFilePath: '.env',
-      load: [databaseConfig, jwtConfig],
+      load: [databaseConfig, jwtConfig, redisConfig],
     }),
 
     // ============ TypeORM 数据库连接 ============
@@ -63,6 +65,9 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
         limit: 60, // 最多60次请求
       },
     ]),
+
+    // ============ Redis 缓存模块 ============
+    RedisModule,
 
     // ============ 存储模块 ============
     StorageModule,

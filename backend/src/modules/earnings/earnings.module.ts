@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { EarningsController } from './earnings.controller';
 import { EarningsService } from './earnings.service';
 import { Earning } from './entities/earning.entity';
+import { Withdrawal } from './entities/withdrawal.entity';
 import { Order } from '../orders/entities/order.entity';
 import { OrderItem } from '../orders/entities/order-item.entity';
 import { Course } from '../courses/entities/course.entity';
@@ -22,7 +23,7 @@ import { CoursesModule } from '../courses/courses.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Earning, Order, OrderItem, Course, Teacher]),
+    TypeOrmModule.forFeature([Earning, Withdrawal, Order, OrderItem, Course, Teacher]),
     forwardRef(() => TeachersModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => CoursesModule),
